@@ -1,63 +1,35 @@
 use rand::Rng;
 use nalgebra::Vector3;
 
-use std::sync::Arc;
+use serde::{Serialize, Deserialize};
 
-pub trait GameObject {
-
+#[derive(Clone, Debug, Serialize)]
+pub enum ObjectType {
+    Player,
+    Enemy,
+    Item,
 }
 
-pub struct Player {
+#[derive(Clone, Debug, Serialize)]
+pub struct GameObject {
+    object_type: ObjectType,
     position: Vector3<f64>,
     velocity: Vector3<f64>,
 }
 
-impl Player {
-    pub fn new() -> Player {
-        Player {
+impl GameObject {
+    pub fn new(object_type: ObjectType) -> GameObject {
+        GameObject {
+            object_type,
             position: Vector3::new(0.0, 0.0, 0.0),
             velocity: Vector3::new(0.0, 0.0, 0.0),
         }
     }
 }
-
-impl GameObject for Player {}
-
-pub struct Item {
-    position: Vector3<f64>,
-    velocity: Vector3<f64>,
-}
-
-impl Item {
-    pub fn new() -> Item {
-        Item {
-            position: Vector3::new(0.0, 0.0, 0.0),
-            velocity: Vector3::new(0.0, 0.0, 0.0),
-        }
-    }
-}
-
-impl GameObject for Item {}
-
-pub struct Enemy {
-    position: Vector3<f64>,
-    velocity: Vector3<f64>,
-}
-
-impl Enemy {
-    pub fn new() -> Enemy {
-        Enemy {
-            position: Vector3::new(0.0, 0.0, 0.0),
-            velocity: Vector3::new(0.0, 0.0, 0.0),
-        }
-    }
-}
-
-impl GameObject for Enemy {}
 
 pub struct GameArea {
-    area_size: u32,
-    objects: Vec<Arc<dyn GameObject>>,
+    pub area_size: u32,
+    pub objects: Vec<GameObject>,
 }
 
 impl GameArea {
@@ -72,13 +44,10 @@ impl GameArea {
         let mut rng = rand::thread_rng();
 
         for _n in 0..num_items {
-            let mut item = Item::new();
+            let mut item = GameObject::new(ObjectType::Item);
             item.position.x = rng.gen::<f64>() * self.area_size as f64;
             item.position.z = rng.gen::<f64>() * self.area_size as f64;
-            self.objects.push(Arc::new(item));
+            self.objects.push(item);
         }
     }
 }
-
-unsafe impl Send for GameArea {}
-unsafe impl Sync for GameArea {}

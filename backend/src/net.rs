@@ -1,19 +1,22 @@
-extern crate serde;
 
-#[macro_use]
-extern crate serde_derive;
-extern crate rmp_serde as rmps;
+use serde::ser::{Serialize, Serializer, SerializeStruct};
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use rmps::{Deserializer, Serializer};
+use crate::game::GameObject;
 
-pub mod game;
+#[derive(Clone, Debug)]
+pub struct StateUpdate {
+    pub area_size: u32,
+    pub objects: Vec<GameObject>,
+}
 
-use game::GameObject;
-
-#[derive(Debug, Deserialize, Serialize)]
-struct StateUpdate {
-    area_size: u32,
-    objects: Vec<GameObject>
+impl Serialize for StateUpdate {
+   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+       let mut state = serializer.serialize_struct("StateUpdate", 2)?;
+       state.serialize_field("area_size", &self.area_size)?;
+       state.serialize_field("objects", &self.objects)?;
+       state.end()
+    }
 }

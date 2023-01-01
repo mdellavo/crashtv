@@ -11,9 +11,10 @@ import {
 
 import { Client } from './api';
 
+const client = new Client("ws://localhost:3030/ws", "user");
+
 const main = () => {
 
-    const client = new Client("ws://localhost:3030/ws", "user");
     client.connect();
 
     const scene = new Scene();

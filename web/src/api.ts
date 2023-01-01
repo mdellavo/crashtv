@@ -1,3 +1,5 @@
+import { decode } from "@msgpack/msgpack";
+
 export class Client {
     url: string;
     username: string;
@@ -10,13 +12,11 @@ export class Client {
 
     connect() {
         this.socket = new WebSocket(this.url);
-        this.socket.addEventListener('open', (event) => {
-            console.log('Open', event);
-            this.socket.send('Hello Server!');
-        });
+        this.socket.binaryType = "arraybuffer";
 
         this.socket.addEventListener('message', (event) => {
-            console.log('Message', event.data);
+            const obj = decode(event.data);
+            console.log('Message', obj);
         });
 
         this.socket.addEventListener('close', (event) => {
@@ -26,6 +26,12 @@ export class Client {
         this.socket.addEventListener('error', (event) => {
             console.log('Error', event);
         });
+
+        this.socket.addEventListener('open', (event) => {
+            console.log('Open', event);
+            this.socket.send('Hello Server!');
+        });
+
     }
 
 }
