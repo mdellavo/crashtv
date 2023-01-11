@@ -40,7 +40,7 @@ pub enum ClientMessage {
     Hello(String),
     Ping(f64),
     Goodbye(),
-    Move(i8, i8, i8),
+    Move(f32, f32, f32),
 }
 
 #[derive(Debug)]
@@ -48,7 +48,7 @@ pub enum GameMessage {
     Hello(Client, UnboundedSender<GameResponse>, String),
     Goodbye(Client),
     Ping(Client, f64),
-    Move(Client, i8, i8, i8),
+    Move(Client, f32, f32, f32),
 }
 
 #[derive(Debug, Serialize)]
@@ -60,6 +60,7 @@ pub enum GameResponse {
     Notice(String),
 }
 
+#[derive(Debug)]
 pub struct Player {
     client: Client,
     conn: UnboundedSender<GameResponse>,
@@ -123,7 +124,6 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
                 break;
             }
         };
-        log::info!("reader got {:?}", msg);
 
         let game_msg = match msg {
             ClientMessage::Hello(username) => {
@@ -179,7 +179,11 @@ async fn game_main(mut area: GameArea, mut game_rx: UnboundedReceiver<GameMessag
                     return;
                 }
 
+                let center = area.area_size as f64 / 2.0;
                 let player_obj = area.add_object(ObjectType::Actor);
+                player_obj.position.x = center;
+                player_obj.position.z = center;
+
                 let player = Player {
                     client,
                     conn: client_conn,
@@ -190,12 +194,15 @@ async fn game_main(mut area: GameArea, mut game_rx: UnboundedReceiver<GameMessag
                 let notice = format!("Hello {}", player.username);
                 player.send(GameResponse::Notice(notice));
 
-                player.send(GameResponse::StateUpdate(StateUpdate {
-                    area_size: area.area_size,
-                    objects: area.objects.values().cloned().collect(),
-                }));
-
                 players.insert(client.client_id, player);
+
+                for other in players.values() {
+                    other.send(GameResponse::StateUpdate(StateUpdate {
+                        area_size: area.area_size,
+                        objects: area.objects.values().cloned().collect(),
+                    }));
+                }
+
             },
             GameMessage::Goodbye(client) => {
                 let player = &players[&client.client_id];
@@ -214,11 +221,7 @@ async fn game_main(mut area: GameArea, mut game_rx: UnboundedReceiver<GameMessag
                 player_obj.position.y += y as f64;
                 player_obj.position.z += z as f64;
 
-                for (other_id, other) in players.iter() {
-                    if other_id == &client.client_id {
-                        continue;
-                    }
-
+                for other in players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         area_size: area.area_size,
                         objects: area.objects.values().cloned().collect(),

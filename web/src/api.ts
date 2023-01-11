@@ -1,9 +1,8 @@
 import { decode as msgpack_decode, encode as msgpack_encode } from "@msgpack/msgpack";
 
 export enum ObjectType {
-    ITEM,
-    PLAYER,
-    ENEMY,
+    Item,
+    Actor,
 }
 
 export class Vec3 {
@@ -57,25 +56,27 @@ export class GameArea {
         this.areaSize = state.areaSize;
 
         var current = new Set(this.objects.keys());
-        var updated = new Set<number>();
+        var touched = new Set<number>();
 
         for(var i=0; i<state.objects.length; i++) {
             var obj = state.objects[i];
             this.objects.set(obj.objectId, obj);
-            updated.add(obj.objectId);
+            touched.add(obj.objectId);
         }
 
-        var addedIds = new Set(Array.from(updated).filter(x => !current.has(x)));
-        var removedIds = new Set(Array.from(current).filter(x => !updated.has(x)));
+        var addedIds = new Set(Array.from(touched).filter(x => !current.has(x)));
+        var removedIds = new Set(Array.from(current).filter(x => !touched.has(x)));
+        var updatedIds = new Set(Array.from(touched).filter(x => !addedIds.has(x) || !removedIds.has(x)))
 
         var added = new Set<GameObject>(Array.from(addedIds).map(x => this.objects.get(x)));
         var removed = new Set<GameObject>(Array.from(removedIds).map(x => this.objects.get(x)));
+        var updated = new Set<GameObject>(Array.from(updatedIds).map(x => this.objects.get(x)));
 
         removedIds.forEach((removedId) => {
             this.objects.delete(removedId);
         });
 
-        return [added, removed];
+        return [added, removed, updated];
     }
 }
 
@@ -168,8 +169,6 @@ export class Client {
             const rawResponse = msgpack_decode(event.data) as {string: any};
             const response = decodeResponse(rawResponse);
 
-            console.log('Message', response);
-
             for (let k in response) {
                 var handler = eventHandler[k];
                 if (handler) {
@@ -194,7 +193,6 @@ export class Client {
     }
 
     send(msg: any) {
-        console.log("Sending", msg);
         var data = msgpack_encode(msg);
         this.socket.send(data);
     }
@@ -208,6 +206,12 @@ export class Client {
     sendPing() {
         this.send({
             "Ping": new Date().getTime()
+        });
+    }
+
+    sendMove(x: number, y: number, z: number) {
+        this.send({
+            "Move": [x, y, z],
         });
     }
 }
