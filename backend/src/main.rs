@@ -110,16 +110,16 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
     }
 }
 
-
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 
     let (game_tx, game_rx) = unbounded_channel::<GameMessage>();
 
-    tokio::spawn(async {
-        let mut area = GameArea::new(AREA_SIZE);
-        area.populate(500);
+    let tx = game_tx.clone();
+    tokio::spawn(async move {
+        let mut area = GameArea::new(AREA_SIZE, tx.clone());
+        area.populate(500, 100);
         log::info!("game server running");
         area.process(game_rx).await
     });

@@ -23,6 +23,16 @@ const buildItemMesh = (item: GameObject) => {
 
 const buildActorMesh = (item: GameObject) => {
   const geometry = new BoxGeometry(5, 5, 5);
+  const material = new MeshBasicMaterial({color: 0xff0000});
+  const cube = new Mesh(geometry, material);
+  cube.position.x = item.position.x;
+  cube.position.y = item.position.y;
+  cube.position.z = item.position.z;
+  return cube;
+}
+
+const buildPlayerMesh = (item: GameObject) => {
+  const geometry = new BoxGeometry(5, 5, 5);
   const material = new MeshBasicMaterial({color: 0x0000ff});
   const cube = new Mesh(geometry, material);
   cube.position.x = item.position.x;
@@ -115,18 +125,22 @@ export const gameMain = (username: string) => {
       added.forEach((obj: GameObject) => {
         if (obj.objectType.toString() === "Item") {
           var mesh = buildItemMesh(obj);
-        } else {
+        } else if (obj.objectType.toString() === "Actor") {
           var mesh = buildActorMesh(obj);
+        } else {
+          var mesh = buildPlayerMesh(obj);
         }
         objectMap.set(obj.objectId, mesh);
         objectsGroup.add(mesh);
       });
 
-      removed.forEach((obj: GameObject) => {
-        var mesh = objectMap.get(obj.objectId);
-        objectsGroup.remove(mesh);
-        objectMap.delete(obj.objectId);
-      });
+      if (removed) {
+        removed.forEach((obj: GameObject) => {
+          var mesh = objectMap.get(obj.objectId);
+          objectsGroup.remove(mesh);
+          objectMap.delete(obj.objectId);
+        });
+      }
 
       updated.forEach((obj: GameObject) => {
         var mesh = objectMap.get(obj.objectId);

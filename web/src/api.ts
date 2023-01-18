@@ -69,12 +69,14 @@ export class GameArea {
     var updatedIds = new Set(Array.from(touched).filter(x => !addedIds.has(x) || !removedIds.has(x)))
 
     var added = new Set<GameObject>(Array.from(addedIds).map(x => this.objects.get(x)));
-    var removed = new Set<GameObject>(Array.from(removedIds).map(x => this.objects.get(x)));
     var updated = new Set<GameObject>(Array.from(updatedIds).map(x => this.objects.get(x)));
 
-    removedIds.forEach((removedId) => {
-      this.objects.delete(removedId);
-    });
+    if (!state.incremental) {
+      var removed = new Set<GameObject>(Array.from(removedIds).map(x => this.objects.get(x)));
+      removedIds.forEach((removedId) => {
+        this.objects.delete(removedId);
+      });
+    }
 
     return [added, removed, updated];
   }
@@ -83,17 +85,19 @@ export class GameArea {
 export class StateUpdate {
   yourClientId: number;
   areaSize: number;
+  incremental: boolean;
   objects: GameObject[];
 
-  constructor(yourClientId: number, areaSize: number, objects: GameObject[]) {
+  constructor(yourClientId: number, areaSize: number, incremental: boolean, objects: GameObject[]) {
     this.yourClientId = yourClientId;
     this.areaSize = areaSize;
+    this.incremental = incremental;
     this.objects = objects;
   }
 
   static fromResponse(data: any) {
-    const objects = data[2].map(GameObject.fromResponse);
-    return new StateUpdate(data[0], data[1], objects);
+    const objects = data[3].map(GameObject.fromResponse);
+    return new StateUpdate(data[0], data[1], data[2], objects);
   }
 }
 
