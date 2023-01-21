@@ -41,7 +41,6 @@ const buildPlayerMesh = (item: GameObject) => {
   return cube;
 }
 
-
 export const gameMain = (username: string) => {
   const renderer = new WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -107,8 +106,26 @@ export const gameMain = (username: string) => {
 
   const area = new GameArea();
 
+  var timer: any = undefined;
   const client = new Client("ws://localhost:3030/ws", username);
+  const onInterval = () => {
+    client.sendPing()
+  };
+
   client.connect({
+    "Open": () => {
+      timer = window.setInterval(onInterval, 5000);
+    },
+    "Close": () => {
+      if (timer) {
+        window.clearInterval(timer);
+      }
+    },
+    "Error": () => {
+      if (timer) {
+        window.clearInterval(timer);
+      }
+    },
     "Pong": (pong: Pong) => {
       const now = new Date().getTime();
       console.log("pong", now - pong.timestamp, "ms");
@@ -116,22 +133,32 @@ export const gameMain = (username: string) => {
     "Notice": (notice: Notice) => {
       console.log("notice from server:", notice.message);
     },
-    "Error": (error: ErrorMessage) => {
-      console.log(error);
-    },
     "StateUpdate": (state: StateUpdate) => {
+
+      if (!state.incremental) {
+        objectsGroup.clear();
+        objectMap.clear();
+      }
+
       var [added, removed, updated] = area.update(state);
 
+      //console.log("update", "objectMap", objectMap.size, "group", objectsGroup.children.length, "added", added.size, "removed", removed.size, "updated", updated.size);
+
       added.forEach((obj: GameObject) => {
-        if (obj.objectType.toString() === "Item") {
-          var mesh = buildItemMesh(obj);
-        } else if (obj.objectType.toString() === "Actor") {
-          var mesh = buildActorMesh(obj);
-        } else {
-          var mesh = buildPlayerMesh(obj);
+        var mesh = objectMap.get(obj.objectId);
+
+        if (!mesh) {
+          if (obj.objectType.toString() === "Item") {
+            mesh = buildItemMesh(obj);
+          } else if (obj.objectType.toString() === "Actor") {
+            mesh = buildActorMesh(obj);
+          } else {
+            mesh = buildPlayerMesh(obj);
+          }
+          objectMap.set(obj.objectId, mesh);
+          objectsGroup.add(mesh);
         }
-        objectMap.set(obj.objectId, mesh);
-        objectsGroup.add(mesh);
+
       });
 
       if (removed) {

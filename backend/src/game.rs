@@ -48,6 +48,7 @@ pub enum GameMessage {
     Move(Client, f32, f32, f32),
 
     // Actor Messages
+    Respawn(u32),
     Scan(u32, oneshot::Sender<(Actor, GameObject, Vec<GameObject>)>),
     ActorMove(u32, f32, f32, f32),
 }
@@ -72,6 +73,7 @@ impl Player {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct GameObject {
+    pub alive: bool,
     pub object_id: u32,
     pub object_type: ObjectType,
     pub position: Vector3<f64>,
@@ -81,6 +83,7 @@ pub struct GameObject {
 impl GameObject {
     pub fn new(object_type: ObjectType) -> GameObject {
         GameObject {
+            alive: true,
             object_type,
             object_id: GAME_OBJECT_COUNTER.fetch_add(1, Ordering::Relaxed) as u32,
             position: Vector3::new(0.0, 0.0, 0.0),
@@ -114,9 +117,18 @@ impl Actor {
 
 async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) {
     let mut interval = time::interval(Duration::from_millis(100));
+    let mut count = (17 * actor.actor_id * actor.object_id) % 1000;
 
     loop {
+        count += 1;
         interval.tick().await;
+
+        if count % 1000 == 0 {
+            if let Err(e) = tx.send(GameMessage::Respawn(actor.actor_id)) {
+                log::error!("error sending respawn: {}", e);
+            }
+            break
+        }
 
         let (sender, receiver) = oneshot::channel::<(Actor, GameObject, Vec<GameObject>)>();
         let result = tx.send(GameMessage::Scan(actor.actor_id, sender));
@@ -129,7 +141,9 @@ async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) {
             Ok((_, actor_obj, players)) => {
                 if let Some(player) = players.iter().nth(0) {
                     let dir = (player.position - actor_obj.position).normalize();
-                    tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32));
+                    if let Err(e) = tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32)) {
+                        log::error!("error sending move: {:?}", e);
+                    }
                 }
             },
             Err(e) => {
@@ -248,11 +262,20 @@ impl GameArea {
     }
 
     async fn handle_goodbye(&mut self, client: Client) {
-        if let Some(player) = self.players.get_mut(&client.client_id) {
+        if let Some(player) = self.players.remove(&client.client_id) {
+            if let Some(mut player_obj) = self.objects.remove(&player.object_id) {
+                player_obj.alive = false;
+                for other in self.players.values() {
+                    other.send(GameResponse::StateUpdate(StateUpdate {
+                        object_id: other.object_id,
+                        area_size: self.area_size,
+                        objects: vec![player_obj.clone()],
+                        incremental: true
+                    }));
+                }
+            }
             player.send(GameResponse::Goodbye());
-            self.objects.remove(&player.object_id);
         }
-        self.players.remove(&client.client_id);
     }
 
     async fn handle_ping(&mut self, client: Client, timestamp: f64) {
@@ -262,7 +285,7 @@ impl GameArea {
     }
 
     async fn handle_move(&mut self, client: Client, x: f32, y: f32, z: f32) {
-        let size = self.area_size;
+        let size = self.area_size as f64;
 
         if let Some(player) = self.players.get(&client.client_id) {
             if let Some(player_obj) = self.objects.get_mut(&player.object_id) {
@@ -270,12 +293,11 @@ impl GameArea {
                 player_obj.position.y += y as f64;
                 player_obj.position.z += z as f64;
 
-
                 // FIXME add a helper to broadcast an update
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
-                        area_size: size,
+                        area_size: size as u32,
                         incremental: true,
                         objects: vec![player_obj.clone()],
                     }));
@@ -302,11 +324,13 @@ impl GameArea {
         });
 
         let result = player_objs.iter().take(10).cloned().cloned().collect();
-        response_conn.send((actor.clone(), actor_obj.clone(), result));
+        if let Err(e) = response_conn.send((actor.clone(), actor_obj.clone(), result)) {
+            log::error!("error sending response: {:?}", e);
+        }
     }
 
     async fn handle_actor_move(&mut self, actor_id: u32, x: f32, y: f32, z: f32) {
-        let size = self.area_size;
+        let size = self.area_size as f64;
 
         if let Some(actor) = self.actors.get(&actor_id) {
             if let Some(actor_obj) = self.objects.get_mut(&actor.object_id) {
@@ -318,13 +342,40 @@ impl GameArea {
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
-                        area_size: size,
+                        area_size: size as u32,
                         incremental: true,
                         objects: vec![actor_obj.clone()],
                     }));
                 }
             }
         }
+    }
+
+    async fn handle_respawn(&mut self, actor_id: u32) {
+        let size = self.area_size as f64;
+
+        if let Some(handle) = self.actor_handles.remove(&actor_id) {
+            if let Err(e) = handle.await {
+                log::error!("error waiting for actor to reap: {}", e);
+            }
+        }
+
+        if let Some(actor) = self.actors.remove(&actor_id) {
+            if let Some(mut actor_obj) = self.objects.remove(&actor.object_id) {
+                actor_obj.alive = false;
+                // FIXME add a helper to broadcast an update
+                for other in self.players.values() {
+                    other.send(GameResponse::StateUpdate(StateUpdate {
+                        object_id: other.object_id,
+                        area_size: size as u32,
+                        incremental: true,
+                        objects: vec![actor_obj.clone()],
+                    }));
+                }
+            }
+        }
+
+        self.spawn_actor(ActorType::Walker);
     }
 
     pub async fn process(&mut self, mut game_rx: UnboundedReceiver<GameMessage>) {
@@ -348,8 +399,10 @@ impl GameArea {
                 GameMessage::ActorMove(actor_id, x, y, z) => {
                     self.handle_actor_move(actor_id, x, y, z).await;
                 },
+                GameMessage::Respawn(actor_id) => {
+                    self.handle_respawn(actor_id).await;
+                },
             }
         }
     }
-
 }

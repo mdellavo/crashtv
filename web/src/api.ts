@@ -22,12 +22,14 @@ export class Vec3 {
 }
 
 export class GameObject {
+  alive: boolean;
   objectId: number;
   objectType: ObjectType;
   position: Vec3;
   velocity: Vec3;
 
-  constructor(objectId: number, objectType: ObjectType, position: Vec3, velocity: Vec3) {
+  constructor(alive: boolean, objectId: number, objectType: ObjectType, position: Vec3, velocity: Vec3) {
+    this.alive = alive;
     this.objectId = objectId;
     this.objectType = objectType;
     this.position = position;
@@ -35,11 +37,12 @@ export class GameObject {
   }
 
   static fromResponse(data: any) {
-    const objId = data[0];
-    const objType = data[1] as ObjectType;
-    const position = Vec3.fromResponse(data[2]);
-    const velocity = Vec3.fromResponse(data[3]);
-    return new GameObject(objId, objType, position, velocity)
+    const alive = data[0];
+    const objId = data[1];
+    const objType = data[2] as ObjectType;
+    const position = Vec3.fromResponse(data[3]);
+    const velocity = Vec3.fromResponse(data[4]);
+    return new GameObject(alive, objId, objType, position, velocity)
   }
 }
 
@@ -55,28 +58,42 @@ export class GameArea {
   update(state: StateUpdate) {
     this.areaSize = state.areaSize;
 
-    var current = new Set(this.objects.keys());
+    if (!state.incremental) {
+      var yourObj = this.objects.get(state.yourClientId);
+      this.objects.clear();
+      if (yourObj)
+        this.objects.set(yourObj.objectId, yourObj);
+    }
+
+    var current = new Set<number>();
     var touched = new Set<number>();
 
+    var deadIds = [];
     for(var i=0; i<state.objects.length; i++) {
       var obj = state.objects[i];
-      this.objects.set(obj.objectId, obj);
-      touched.add(obj.objectId);
+      if (obj.alive) {
+        this.objects.set(obj.objectId, obj);
+        touched.add(obj.objectId);
+      } else {
+        deadIds.push(obj.objectId);
+      }
     }
 
     var addedIds = new Set(Array.from(touched).filter(x => !current.has(x)));
     var removedIds = new Set(Array.from(current).filter(x => !touched.has(x)));
+    for (var i=0; i<deadIds.length; i++) {
+      removedIds.add(deadIds[i]);
+    }
+
     var updatedIds = new Set(Array.from(touched).filter(x => !addedIds.has(x) || !removedIds.has(x)))
 
     var added = new Set<GameObject>(Array.from(addedIds).map(x => this.objects.get(x)));
     var updated = new Set<GameObject>(Array.from(updatedIds).map(x => this.objects.get(x)));
 
-    if (!state.incremental) {
-      var removed = new Set<GameObject>(Array.from(removedIds).map(x => this.objects.get(x)));
-      removedIds.forEach((removedId) => {
-        this.objects.delete(removedId);
-      });
-    }
+    var removed = new Set<GameObject>(Array.from(removedIds).map(x => this.objects.get(x)));
+    removedIds.forEach((removedId) => {
+      this.objects.delete(removedId);
+    });
 
     return [added, removed, updated];
   }
@@ -171,30 +188,36 @@ export class Client {
     this.socket = new WebSocket(this.url);
     this.socket.binaryType = "arraybuffer";
 
+    const callHandler = (name: string, arg?: any) => {
+      var handler = eventHandler[name];
+      if (handler) {
+        handler(arg);
+      }
+    };
+
     this.socket.addEventListener('message', (event) => {
       const rawResponse = msgpack_decode(event.data) as {string: any};
       const response = decodeResponse(rawResponse);
 
       for (let k in response) {
-        var handler = eventHandler[k];
-        if (handler) {
-          handler(response[k]);
-        }
+        callHandler(k, response[k]);
       }
     });
 
     this.socket.addEventListener('close', (event) => {
       console.log('Close', event);
+      callHandler('Close', event);
     });
 
     this.socket.addEventListener('error', (event) => {
       console.log('Error', event);
+      callHandler('Error', event);
     });
 
     this.socket.addEventListener('open', (event) => {
       console.log('Open', event);
+      callHandler('Open', event);
       this.sendHello(this.username);
-      this.sendPing();
     });
   }
 
