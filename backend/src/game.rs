@@ -8,7 +8,8 @@ use nalgebra::Vector3;
 use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tokio::time::{self, Duration};
+use tokio::time::{self, Duration, Instant};
+use tokio::time::timeout;
 
 use serde::Serialize;
 
@@ -74,6 +75,7 @@ impl Player {
 #[derive(Clone, Debug, Serialize)]
 pub struct GameObject {
     pub alive: bool,
+    pub age: u32,
     pub object_id: u32,
     pub object_type: ObjectType,
     pub position: Vector3<f64>,
@@ -84,6 +86,7 @@ impl GameObject {
     pub fn new(object_type: ObjectType) -> GameObject {
         GameObject {
             alive: true,
+            age: 0,
             object_type,
             object_id: GAME_OBJECT_COUNTER.fetch_add(1, Ordering::Relaxed) as u32,
             position: Vector3::new(0.0, 0.0, 0.0),
@@ -289,6 +292,7 @@ impl GameArea {
 
         if let Some(player) = self.players.get(&client.client_id) {
             if let Some(player_obj) = self.objects.get_mut(&player.object_id) {
+
                 player_obj.position.x += x as f64;
                 player_obj.position.y += y as f64;
                 player_obj.position.z += z as f64;
@@ -378,30 +382,54 @@ impl GameArea {
         self.spawn_actor(ActorType::Walker);
     }
 
+    pub async fn handle_message(&mut self, msg: GameMessage) {
+        match msg {
+            GameMessage::Hello(client, client_conn, username) => {
+                self.handle_hello(client, client_conn, username).await;
+            },
+            GameMessage::Goodbye(client) => {
+                self.handle_goodbye(client).await;
+            },
+            GameMessage::Ping(client, timestamp) => {
+                self.handle_ping(client, timestamp).await;
+            },
+            GameMessage::Move(client, x, y, z) => {
+                self.handle_move(client, x, y, z).await;
+            },
+            GameMessage::Scan(actor_id, response_conn) => {
+                self.handle_scan(actor_id, response_conn).await;
+            },
+            GameMessage::ActorMove(actor_id, x, y, z) => {
+                self.handle_actor_move(actor_id, x, y, z).await;
+            },
+            GameMessage::Respawn(actor_id) => {
+                self.handle_respawn(actor_id).await;
+            },
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.objects.values_mut().for_each(|obj| {
+            obj.position += obj.velocity;
+            obj.age += 1;
+        });
+    }
+
     pub async fn process(&mut self, mut game_rx: UnboundedReceiver<GameMessage>) {
-        while let Some(msg) = game_rx.recv().await {
-            match msg {
-                GameMessage::Hello(client, client_conn, username) => {
-                    self.handle_hello(client, client_conn, username).await;
-                },
-                GameMessage::Goodbye(client) => {
-                    self.handle_goodbye(client).await;
-                },
-                GameMessage::Ping(client, timestamp) => {
-                    self.handle_ping(client, timestamp).await;
-                },
-                GameMessage::Move(client, x, y, z) => {
-                    self.handle_move(client, x, y, z).await;
-                },
-                GameMessage::Scan(actor_id, response_conn) => {
-                    self.handle_scan(actor_id, response_conn).await;
-                },
-                GameMessage::ActorMove(actor_id, x, y, z) => {
-                    self.handle_actor_move(actor_id, x, y, z).await;
-                },
-                GameMessage::Respawn(actor_id) => {
-                    self.handle_respawn(actor_id).await;
-                },
+
+        let mut last_tick = Instant::now();
+        let period = Duration::from_millis(16);
+        loop {
+            if let Ok(msg) = timeout(period, game_rx.recv()).await {
+                if msg.is_none() {
+                    break;
+                }
+                self.handle_message(msg.unwrap()).await;
+            }
+
+            if last_tick.elapsed() > period {
+                self.tick();
+                last_tick = Instant::now();
             }
         }
     }

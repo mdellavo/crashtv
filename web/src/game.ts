@@ -66,37 +66,43 @@ export const gameMain = (username: string) => {
 	}
   window.addEventListener('resize', onWindowResize);
 
-  const onKeyPress = (e: KeyboardEvent) => {
-    e.preventDefault();
+  const keyMap = {} as {[key: string]: boolean};
 
-    switch(e.key) {
-        case 'w':
-        case 'ArrowUp': {
-          client.sendMove(0, 0, 1);
-          camera.position.z += 1;
-          break;
-        }
-
-        case 's':
-        case 'ArrowDown': {
-          client.sendMove(0, 0, -1);
-          break;
-        }
-
-        case 'a':
-        case 'ArrowLeft': {
-          client.sendMove(1, 0, 0);
-          break;
-        }
-
-        case 'd':
-        case 'ArrowRight': {
-          client.sendMove(-1, 0, 0);
-          break;
-        }
+  const checkKeys = () => {
+    var [x, y, z] = [0, 0, 0];
+    if (keyMap['w'] || keyMap["ArrowUp"]) {
+          z = 1;
     }
+    if (keyMap['s'] || keyMap["ArrowDown"]) {
+          z = -1;
+    }
+    if (keyMap['a'] || keyMap["ArrowLeft"]) {
+          x = 1;
+    }
+    if (keyMap['d'] || keyMap["ArrowRight"]) {
+          x = -1;
+    }
+    client.sendMove(x, y, z);
   }
-  window.addEventListener('keydown', onKeyPress);
+
+  var keyInterval :number|undefined;
+  const onKeyDown = (e: KeyboardEvent) => {
+    e.preventDefault();
+    keyMap[e.key] = true;
+    if (!keyInterval) {
+      keyInterval = window.setInterval(checkKeys, 1000/24);
+    }
+  };
+  window.addEventListener('keydown', onKeyDown);
+
+  const onKeyUp = (e: KeyboardEvent) => {
+    e.preventDefault();
+    delete keyMap[e.key];
+    if(!keyMap) {
+      window.clearInterval(keyInterval);
+    }
+  };
+  window.addEventListener('keyup', onKeyUp);
 
   const animate = () => {
 	  requestAnimationFrame(animate);

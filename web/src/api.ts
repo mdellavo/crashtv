@@ -23,13 +23,15 @@ export class Vec3 {
 
 export class GameObject {
   alive: boolean;
+  age: number;
   objectId: number;
   objectType: ObjectType;
   position: Vec3;
   velocity: Vec3;
 
-  constructor(alive: boolean, objectId: number, objectType: ObjectType, position: Vec3, velocity: Vec3) {
+  constructor(alive: boolean, age: number, objectId: number, objectType: ObjectType, position: Vec3, velocity: Vec3) {
     this.alive = alive;
+    this.age = age;
     this.objectId = objectId;
     this.objectType = objectType;
     this.position = position;
@@ -38,11 +40,12 @@ export class GameObject {
 
   static fromResponse(data: any) {
     const alive = data[0];
-    const objId = data[1];
-    const objType = data[2] as ObjectType;
-    const position = Vec3.fromResponse(data[3]);
-    const velocity = Vec3.fromResponse(data[4]);
-    return new GameObject(alive, objId, objType, position, velocity)
+    const age = data[1]
+    const objId = data[2];
+    const objType = data[3] as ObjectType;
+    const position = Vec3.fromResponse(data[4]);
+    const velocity = Vec3.fromResponse(data[5]);
+    return new GameObject(alive, age, objId, objType, position, velocity);
   }
 }
 
