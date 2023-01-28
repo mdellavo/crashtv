@@ -2,9 +2,9 @@ import { DOMcreateElement } from './render';
 import { css } from '@emotion/css'
 
 export interface WelcomeScreenProps {
+  message?: string;
   onJoin(username: string): void;
 }
-
 
 export const WelcomeScreen = (props: WelcomeScreenProps) => {
 
@@ -28,6 +28,9 @@ export const WelcomeScreen = (props: WelcomeScreenProps) => {
         <h1>CrashTV</h1><br/>
         <form method="post" onsubmit={onSubmit}>
           <div>
+
+            <h2>{props.message || ""}</h2>
+
             <div>
               <input name="username" value={username} onchange={(e: any) => username = e.target.value}/>
             </div>

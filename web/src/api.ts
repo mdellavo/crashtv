@@ -188,8 +188,6 @@ export class Client {
   }
 
   connect(eventHandler: any) {
-    this.socket = new WebSocket(this.url);
-    this.socket.binaryType = "arraybuffer";
 
     const callHandler = (name: string, arg?: any) => {
       var handler = eventHandler[name];
@@ -197,6 +195,14 @@ export class Client {
         handler(arg);
       }
     };
+
+    try {
+      this.socket = new WebSocket(this.url);
+    } catch(error) {
+      callHandler('Error', error);
+    }
+
+    this.socket.binaryType = "arraybuffer";
 
     this.socket.addEventListener('message', (event) => {
       const rawResponse = msgpack_decode(event.data) as {string: any};
@@ -209,6 +215,7 @@ export class Client {
 
     this.socket.addEventListener('close', (event) => {
       console.log('Close', event);
+      this.socket = undefined;
       callHandler('Close', event);
     });
 
@@ -225,6 +232,9 @@ export class Client {
   }
 
   send(msg: any) {
+    if (!this.socket) {
+      return;
+    }
     var data = msgpack_encode(msg);
     this.socket.send(data);
   }

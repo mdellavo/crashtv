@@ -49,6 +49,7 @@ pub enum GameMessage {
     Move(Client, f32, f32, f32),
 
     // Actor Messages
+    Die(u32),
     Respawn(u32),
     Scan(u32, oneshot::Sender<(Actor, GameObject, Vec<GameObject>)>),
     ActorMove(u32, f32, f32, f32),
@@ -98,6 +99,7 @@ impl GameObject {
 #[derive(Clone, Debug)]
 pub enum ActorType {
     Walker,
+    Bullet,
 }
 
 
@@ -186,10 +188,10 @@ impl GameArea {
         let obj = GameObject::new(object_type);
         let key = obj.object_id;
         self.objects.insert(obj.object_id, obj);
-        return self.objects.get_mut(&key).unwrap();
+        self.objects.get_mut(&key).unwrap()
     }
 
-    pub fn spawn_actor(&mut self, actor_type: ActorType) {
+    pub fn spawn_actor(&mut self, actor_type: ActorType) -> u32 {
         let tx = self.game_tx.clone();
         let mut rng = rand::thread_rng();
 
@@ -206,7 +208,10 @@ impl GameArea {
         let handle = tokio::spawn(async {
             actor_main(handle_actor, tx).await;
         });
+
         self.actor_handles.insert(actor_id, handle);
+
+        return actor_id;
     }
 
     pub fn populate(&mut self, num_items: u32, num_actors: u32) {
@@ -242,6 +247,8 @@ impl GameArea {
         }
 
         let player_obj = self.add_object(ObjectType::Player);
+        let player_object_id = player_obj.object_id;
+
         let player = Player {
             client,
             conn: client_conn,
@@ -251,16 +258,24 @@ impl GameArea {
 
         let notice = format!("Hello {}", player.username);
         player.send(GameResponse::Notice(notice));
+        player.send(GameResponse::StateUpdate(StateUpdate {
+            object_id: player_object_id,
+            area_size: self.area_size,
+            objects: self.objects.values().cloned().collect(),
+            incremental: false,
+        }));
 
         self.players.insert(client.client_id, player);
 
-        for other in self.players.values() {
-            other.send(GameResponse::StateUpdate(StateUpdate {
-                object_id: other.object_id,
-                area_size: self.area_size,
-                objects: self.objects.values().cloned().collect(),
-                incremental: false,
-            }));
+        if let Some(player_obj) = self.objects.get(&player_object_id) {
+            for other in self.players.values() {
+                other.send(GameResponse::StateUpdate(StateUpdate {
+                    object_id: other.object_id,
+                    area_size: self.area_size,
+                    objects: vec![player_obj.clone()],
+                    incremental: true
+                }));
+            }
         }
     }
 
@@ -297,7 +312,6 @@ impl GameArea {
                 player_obj.position.y += y as f64;
                 player_obj.position.z += z as f64;
 
-                // FIXME add a helper to broadcast an update
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
@@ -342,7 +356,30 @@ impl GameArea {
                 actor_obj.position.y += y as f64;
                 actor_obj.position.z += z as f64;
 
-                // FIXME add a helper to broadcast an update
+                for other in self.players.values() {
+                    other.send(GameResponse::StateUpdate(StateUpdate {
+                        object_id: other.object_id,
+                        area_size: size as u32,
+                        incremental: true,
+                        objects: vec![actor_obj.clone()],
+                    }));
+                }
+            }
+        }
+    }
+
+    async fn _handle_actor_death(&mut self, actor_id: u32) {
+        if let Some(handle) = self.actor_handles.remove(&actor_id) {
+            if let Err(e) = handle.await {
+                log::error!("error waiting for actor to reap: {}", e);
+            }
+        }
+
+        let size = self.area_size as f64;
+        if let Some(actor) = self.actors.remove(&actor_id) {
+            if let Some(mut actor_obj) = self.objects.remove(&actor.object_id) {
+                actor_obj.alive = false;
+
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
@@ -356,30 +393,25 @@ impl GameArea {
     }
 
     async fn handle_respawn(&mut self, actor_id: u32) {
+        self._handle_actor_death(actor_id).await;
+
         let size = self.area_size as f64;
+        let new_actor_id = self.spawn_actor(ActorType::Walker);
 
-        if let Some(handle) = self.actor_handles.remove(&actor_id) {
-            if let Err(e) = handle.await {
-                log::error!("error waiting for actor to reap: {}", e);
+        if let Some(new_object) = self.objects.get(&new_actor_id) {
+            for other in self.players.values() {
+                other.send(GameResponse::StateUpdate(StateUpdate {
+                    object_id: other.object_id,
+                    area_size: size as u32,
+                    incremental: true,
+                    objects: vec![new_object.clone()],
+                }));
             }
         }
+    }
 
-        if let Some(actor) = self.actors.remove(&actor_id) {
-            if let Some(mut actor_obj) = self.objects.remove(&actor.object_id) {
-                actor_obj.alive = false;
-                // FIXME add a helper to broadcast an update
-                for other in self.players.values() {
-                    other.send(GameResponse::StateUpdate(StateUpdate {
-                        object_id: other.object_id,
-                        area_size: size as u32,
-                        incremental: true,
-                        objects: vec![actor_obj.clone()],
-                    }));
-                }
-            }
-        }
-
-        self.spawn_actor(ActorType::Walker);
+    async fn handle_die(&mut self, actor_id: u32) {
+        self._handle_actor_death(actor_id).await;
     }
 
     pub async fn handle_message(&mut self, msg: GameMessage) {
@@ -404,6 +436,9 @@ impl GameArea {
             },
             GameMessage::Respawn(actor_id) => {
                 self.handle_respawn(actor_id).await;
+            },
+            GameMessage::Die(actor_id) => {
+                self.handle_die(actor_id).await;
             },
         }
     }

@@ -41,7 +41,13 @@ const buildPlayerMesh = (item: GameObject) => {
   return cube;
 }
 
-export const gameMain = (username: string) => {
+export interface GameProps {
+    onNotice(message: string): void;
+    onClose(): void;
+    onError(error: any): void;
+}
+
+export const gameMain = (username: string, props: GameProps) => {
   const renderer = new WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -126,11 +132,13 @@ export const gameMain = (username: string) => {
       if (timer) {
         window.clearInterval(timer);
       }
+      props.onClose()
     },
-    "Error": () => {
+    "Error": (e: any) => {
       if (timer) {
         window.clearInterval(timer);
       }
+      props.onError(e);
     },
     "Pong": (pong: Pong) => {
       const now = new Date().getTime();
@@ -138,6 +146,7 @@ export const gameMain = (username: string) => {
     },
     "Notice": (notice: Notice) => {
       console.log("notice from server:", notice.message);
+      props.onNotice(notice.message);
     },
     "StateUpdate": (state: StateUpdate) => {
 
