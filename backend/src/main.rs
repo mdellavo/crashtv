@@ -21,6 +21,7 @@ use rmps::Serializer;
 
 mod game;
 mod net;
+mod actor;
 
 use game::{Client, GameArea, GameMessage, GameResponse};
 
@@ -29,7 +30,7 @@ const AREA_SIZE: u32 = 1000;
 #[derive(Debug, Deserialize)]
 pub enum ClientMessage {
     Hello(String),
-    Ping(f64),
+    Ping(u64),
     Goodbye(),
     Move(f32, f32, f32),
 }
@@ -119,7 +120,7 @@ async fn main() {
     let tx = game_tx.clone();
     tokio::spawn(async move {
         let mut area = GameArea::new(AREA_SIZE, tx.clone());
-        area.populate(500, 100);
+        area.populate(1000, 250);
         log::info!("game server running");
         area.process(game_rx).await
     });

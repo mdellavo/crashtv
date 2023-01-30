@@ -5,15 +5,20 @@ use std::net::SocketAddr;
 use rand::Rng;
 use nalgebra::Vector3;
 
+use kdtree::KdTree;
+use kdtree::distance::squared_euclidean;
+
+
 use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tokio::time::{self, Duration, Instant};
+use tokio::time::{Duration, Instant};
 use tokio::time::timeout;
 
 use serde::Serialize;
 
 use crate::net::StateUpdate;
+use crate::actor::{Actor, ActorType, actor_main};
 
 #[derive(Clone, Debug, Serialize)]
 pub enum ObjectType {
@@ -23,7 +28,6 @@ pub enum ObjectType {
 }
 
 static GAME_OBJECT_COUNTER: AtomicI32 = AtomicI32::new(1);
-static ACTOR_COUNTER: AtomicI32 = AtomicI32::new(1);
 
 #[derive(Debug, Copy, Clone)]
 pub struct Client {
@@ -45,13 +49,13 @@ pub enum GameMessage {
     // Client Messages
     Hello(Client, UnboundedSender<GameResponse>, String),
     Goodbye(Client),
-    Ping(Client, f64),
+    Ping(Client, u64),
     Move(Client, f32, f32, f32),
 
     // Actor Messages
     Die(u32),
     Respawn(u32),
-    Scan(u32, oneshot::Sender<(Actor, GameObject, Vec<GameObject>)>),
+    Scan(u32, oneshot::Sender<(Actor, GameObject, Vec<GameObject>, Vec<GameObject>)>),
     ActorMove(u32, f32, f32, f32),
 }
 
@@ -59,7 +63,7 @@ pub enum GameMessage {
 pub enum GameResponse {
     Error(u32, String),
     StateUpdate(StateUpdate),
-    Pong(f64),
+    Pong(u64),
     Goodbye(),
     Notice(String),
 }
@@ -79,8 +83,9 @@ pub struct GameObject {
     pub age: u32,
     pub object_id: u32,
     pub object_type: ObjectType,
-    pub position: Vector3<f64>,
-    pub velocity: Vector3<f64>,
+    pub position: Vector3<f32>,
+    pub velocity: Vector3<f32>,
+    pub health: u8,
 }
 
 impl GameObject {
@@ -92,68 +97,7 @@ impl GameObject {
             object_id: GAME_OBJECT_COUNTER.fetch_add(1, Ordering::Relaxed) as u32,
             position: Vector3::new(0.0, 0.0, 0.0),
             velocity: Vector3::new(0.0, 0.0, 0.0),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum ActorType {
-    Walker,
-    Bullet,
-}
-
-
-#[derive(Clone, Debug)]
-pub struct Actor {
-    pub actor_id: u32,
-    pub actor_type: ActorType,
-    pub object_id: u32,
-}
-
-impl Actor {
-    pub fn new(actor_type: ActorType, object_id: u32) -> Actor {
-        Actor {
-            actor_id: ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed) as u32,
-            actor_type,
-            object_id,
-        }
-    }
-}
-
-async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) {
-    let mut interval = time::interval(Duration::from_millis(100));
-    let mut count = (17 * actor.actor_id * actor.object_id) % 1000;
-
-    loop {
-        count += 1;
-        interval.tick().await;
-
-        if count % 1000 == 0 {
-            if let Err(e) = tx.send(GameMessage::Respawn(actor.actor_id)) {
-                log::error!("error sending respawn: {}", e);
-            }
-            break
-        }
-
-        let (sender, receiver) = oneshot::channel::<(Actor, GameObject, Vec<GameObject>)>();
-        let result = tx.send(GameMessage::Scan(actor.actor_id, sender));
-        if let Err(e) = result {
-            log::error!("actor error sending to game server {:?}: {}", actor, e);
-        }
-
-        let response = receiver.await;
-        match response {
-            Ok((_, actor_obj, players)) => {
-                if let Some(player) = players.iter().nth(0) {
-                    let dir = (player.position - actor_obj.position).normalize();
-                    if let Err(e) = tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32)) {
-                        log::error!("error sending move: {:?}", e);
-                    }
-                }
-            },
-            Err(e) => {
-                log::error!("error getting response to scan: {}", e);
-            },
+            health: 100,
         }
     }
 }
@@ -165,6 +109,9 @@ pub struct GameArea {
     pub actor_handles: HashMap<u32, JoinHandle<()>>,
     pub players: HashMap<u32, Player>,
     pub game_tx: UnboundedSender<GameMessage>,
+    pub player_kdtree: KdTree<f32, u32, [f32; 3]>,
+    pub actor_kdtree: KdTree<f32, u32, [f32; 3]>,
+    pub item_kdtree: KdTree<f32, u32, [f32; 3]>,
 }
 
 impl GameArea {
@@ -176,6 +123,9 @@ impl GameArea {
             players: HashMap::new(),
             actor_handles: HashMap::new(),
             game_tx,
+            player_kdtree: KdTree::new(3),
+            actor_kdtree: KdTree::new(3),
+            item_kdtree: KdTree::new(3),
         }
     }
 
@@ -184,10 +134,26 @@ impl GameArea {
         usernames.iter().any(|x| x.eq(username))
     }
 
-    pub fn add_object(&mut self, object_type: ObjectType) -> &mut GameObject {
-        let obj = GameObject::new(object_type);
+    pub fn add_object(&mut self, object_type: ObjectType, x: f32, y: f32, z: f32) -> &mut GameObject {
+        let mut obj = GameObject::new(object_type.clone());
+
+        obj.position.x = x;
+        obj.position.y = y;
+        obj.position.z = z;
+
+        let kdtree = match object_type {
+            ObjectType::Player => &mut self.player_kdtree,
+            ObjectType::Actor => &mut self.actor_kdtree,
+            ObjectType::Item => &mut self.item_kdtree,
+        };
+
+        let p = [obj.position.x, obj.position.y, obj.position.z];
+        if let Err(e) = kdtree.add(p, obj.object_id) {
+            log::error!("error building kdtree: {}", e);
+        }
+
         let key = obj.object_id;
-        self.objects.insert(obj.object_id, obj);
+        self.objects.insert(key, obj);
         self.objects.get_mut(&key).unwrap()
     }
 
@@ -195,10 +161,12 @@ impl GameArea {
         let tx = self.game_tx.clone();
         let mut rng = rand::thread_rng();
 
-        let size = self.area_size as f64;
-        let item = self.add_object(ObjectType::Actor);
-        item.position.x = -size + (2.0 * rng.gen::<f64>() * size);
-        item.position.z = -size + (2.0 * rng.gen::<f64>() * size);
+        let size = self.area_size as f32;
+        let x = -size + (2.0 * rng.gen::<f32>() * size);
+        let y = 0.0;
+        let z = -size + (2.0 * rng.gen::<f32>() * size);
+
+        let item = self.add_object(ObjectType::Actor, x, y, z);
 
         let actor = Actor::new(actor_type, item.object_id);
         let actor_id = actor.actor_id;
@@ -206,7 +174,9 @@ impl GameArea {
         self.actors.insert(actor_id, actor);
 
         let handle = tokio::spawn(async {
-            actor_main(handle_actor, tx).await;
+            if let Err(e) = actor_main(handle_actor, tx).await {
+                log::error!("actor error: {}", e);
+            }
         });
 
         self.actor_handles.insert(actor_id, handle);
@@ -217,11 +187,12 @@ impl GameArea {
     pub fn populate(&mut self, num_items: u32, num_actors: u32) {
         let mut rng = rand::thread_rng();
 
-        let size = self.area_size as f64;
+        let size = self.area_size as f32;
         for _n in 0..num_items {
-            let item = self.add_object(ObjectType::Item);
-            item.position.x = -size + (2.0 * rng.gen::<f64>() * size);
-            item.position.z = -size + (2.0 * rng.gen::<f64>() * size);
+            let x = -size + (2.0 * rng.gen::<f32>() * size);
+            let y = 0.0;
+            let z = -size + (2.0 * rng.gen::<f32>() * size);
+            let item = self.add_object(ObjectType::Item, x, y, z);
         }
 
         for _n in 0..num_actors {
@@ -246,7 +217,12 @@ impl GameArea {
             return;
         }
 
-        let player_obj = self.add_object(ObjectType::Player);
+        let mut rng = rand::thread_rng();
+        let size = self.area_size as f32;
+        let x = -size + (2.0 * rng.gen::<f32>() * size);
+        let y = 0.0;
+        let z = -size + (2.0 * rng.gen::<f32>() * size);
+        let player_obj = self.add_object(ObjectType::Player, x, y, z);
         let player_object_id = player_obj.object_id;
 
         let player = Player {
@@ -296,21 +272,26 @@ impl GameArea {
         }
     }
 
-    async fn handle_ping(&mut self, client: Client, timestamp: f64) {
+    async fn handle_ping(&mut self, client: Client, timestamp: u64) {
         if let Some(player) = self.players.get(&client.client_id) {
             player.send(GameResponse::Pong(timestamp));
         }
     }
 
     async fn handle_move(&mut self, client: Client, x: f32, y: f32, z: f32) {
-        let size = self.area_size as f64;
+        let size = self.area_size as f32;
 
         if let Some(player) = self.players.get(&client.client_id) {
             if let Some(player_obj) = self.objects.get_mut(&player.object_id) {
-
-                player_obj.position.x += x as f64;
-                player_obj.position.y += y as f64;
-                player_obj.position.z += z as f64;
+                if let Err(e) = self.player_kdtree.remove(&[player_obj.position.x, player_obj.position.y, player_obj.position.z], &player_obj.object_id)  {
+                    log::error!("error building kdtree: {}", e);
+                }
+                player_obj.position.x += x;
+                player_obj.position.y += y;
+                player_obj.position.z += z;
+                if let Err(e) = self.player_kdtree.add([player_obj.position.x, player_obj.position.y, player_obj.position.z], player_obj.object_id)  {
+                    log::error!("error building kdtree: {}", e);
+                }
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
@@ -324,37 +305,58 @@ impl GameArea {
         }
     }
 
-    async fn handle_scan(&mut self, actor_id: u32, response_conn: oneshot::Sender<(Actor, GameObject, Vec<GameObject>)>) {
+    fn query(&self, actor_id: u32, actor: &GameObject, object_type: ObjectType, limit: usize) -> Vec<GameObject>{
+        let p = [actor.position.x, actor.position.y, actor.position.z];
+
+        let kdtree = match object_type {
+            ObjectType::Player => &self.player_kdtree,
+            ObjectType::Actor => &self.actor_kdtree,
+            ObjectType::Item => &self.item_kdtree,
+        };
+
+        kdtree
+            .nearest(&p, limit, &squared_euclidean)
+            .iter()
+            .map(|pair| pair.get(0).unwrap().1)
+            .map(|object_id| self.objects.get(&object_id).unwrap())
+            .cloned()
+            .collect()
+    }
+
+    async fn handle_scan(&mut self, actor_id: u32, response_conn: oneshot::Sender<(Actor, GameObject, Vec<GameObject>, Vec<GameObject>)>) {
         let actor = self.actors.get(&actor_id).unwrap();
         let actor_obj = self.objects.get(&actor.object_id).unwrap();
 
-        let mut player_objs: Vec<&GameObject> = Vec::new();
-        for player in self.players.values() {
-            if let Some(player_obj) = self.objects.get(&player.object_id) {
-                player_objs.push(player_obj)
-            }
+        let players;
+        if self.players.len() > 0 {
+            players = self.query(actor_id, actor_obj, ObjectType::Player, 10);
+        } else {
+            players = vec![];
         }
+        let actors = self.query(actor_id, actor_obj, ObjectType::Actor, 10);
 
-        player_objs.sort_by(|a, b| {
-            let a_dist = a.position.metric_distance(&actor_obj.position);
-            let b_dist = b.position.metric_distance(&actor_obj.position);
-            a_dist.partial_cmp(&b_dist).unwrap()
-        });
-
-        let result = player_objs.iter().take(10).cloned().cloned().collect();
-        if let Err(e) = response_conn.send((actor.clone(), actor_obj.clone(), result)) {
+        if let Err(e) = response_conn.send((actor.clone(), actor_obj.clone(), players, actors)) {
             log::error!("error sending response: {:?}", e);
         }
     }
 
     async fn handle_actor_move(&mut self, actor_id: u32, x: f32, y: f32, z: f32) {
-        let size = self.area_size as f64;
+        let size = self.area_size as f32;
 
         if let Some(actor) = self.actors.get(&actor_id) {
             if let Some(actor_obj) = self.objects.get_mut(&actor.object_id) {
-                actor_obj.position.x += x as f64;
-                actor_obj.position.y += y as f64;
-                actor_obj.position.z += z as f64;
+
+                if let Err(e) = self.actor_kdtree.remove(&[actor_obj.position.x, actor_obj.position.y, actor_obj.position.z], &actor_obj.object_id) {
+                    log::error!("error building kdtree: {}", e);
+                }
+
+                actor_obj.position.x += x;
+                actor_obj.position.y += y;
+                actor_obj.position.z += z;
+
+                if let Err(e) = self.actor_kdtree.add([actor_obj.position.x, actor_obj.position.y, actor_obj.position.z], actor_obj.object_id)  {
+                    log::error!("error building kdtree: {}", e);
+                }
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
@@ -375,7 +377,7 @@ impl GameArea {
             }
         }
 
-        let size = self.area_size as f64;
+        let size = self.area_size as f32;
         if let Some(actor) = self.actors.remove(&actor_id) {
             if let Some(mut actor_obj) = self.objects.remove(&actor.object_id) {
                 actor_obj.alive = false;
@@ -395,7 +397,7 @@ impl GameArea {
     async fn handle_respawn(&mut self, actor_id: u32) {
         self._handle_actor_death(actor_id).await;
 
-        let size = self.area_size as f64;
+        let size = self.area_size as f32;
         let new_actor_id = self.spawn_actor(ActorType::Walker);
 
         if let Some(new_object) = self.objects.get(&new_actor_id) {
@@ -452,10 +454,14 @@ impl GameArea {
 
     pub async fn process(&mut self, mut game_rx: UnboundedReceiver<GameMessage>) {
 
+        let mut tick = 0;
         let mut last_tick = Instant::now();
         let period = Duration::from_millis(16);
         loop {
-            if let Ok(msg) = timeout(period, game_rx.recv()).await {
+
+            let loop_duration = Instant::now();
+
+            if let Ok(msg) = timeout(period/4, game_rx.recv()).await {
                 if msg.is_none() {
                     break;
                 }
@@ -466,6 +472,13 @@ impl GameArea {
                 self.tick();
                 last_tick = Instant::now();
             }
+
+            let elapsed = loop_duration.elapsed();
+            if elapsed > period {
+                log::debug!("tick: {} - process duration: {:?}", tick, loop_duration.elapsed());
+            }
+
+            tick += 1;
         }
     }
 }
