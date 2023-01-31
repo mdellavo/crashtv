@@ -314,11 +314,11 @@ impl GameArea {
             ObjectType::Item => &self.item_kdtree,
         };
 
-        kdtree
-            .nearest(&p, limit, &squared_euclidean)
+        let result = kdtree.nearest(&p, limit, &squared_euclidean).unwrap();
+        result
             .iter()
-            .map(|pair| pair.get(0).unwrap().1)
-            .map(|object_id| self.objects.get(&object_id).unwrap())
+            .map(|pair| pair.1)
+            .flat_map(|object_id| self.objects.get(&object_id))
             .cloned()
             .collect()
     }

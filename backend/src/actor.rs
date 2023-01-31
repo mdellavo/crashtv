@@ -1,3 +1,5 @@
+use std::ops::Sub;
+use std::ops::Div;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use nalgebra::Vector3;
@@ -33,6 +35,23 @@ impl Actor {
     }
 }
 
+fn compute_separation(actor: &GameObject, others: Vec<GameObject>) -> Vector3<f32> {
+    let mut separation = Vector3::new(0.0, 0.0, 0.0);
+    for i in others {
+
+        if i.object_id == actor.object_id {
+            continue;
+        }
+
+        let difference_vec = i
+            .position
+            .sub(actor.position)
+            .div(actor.position.metric_distance(&i.position) * 2.0);
+        separation -= difference_vec;
+    }
+    separation.normalize() * 1.5
+}
+
 pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Result<(), Box<dyn std::error::Error>> {
     let mut interval = time::interval(Duration::from_millis(100));
     loop {
@@ -47,9 +66,10 @@ pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Resul
             dir = (player.position - actor_obj.position).normalize() * 2.0;
         }
 
-        // let (sender, receiver) = oneshot::channel::<(Actor, GameObject, Vec<GameObject>)>();
-        // tx.send(GameMessage::Scan(actor.actor_id, ObjectType::Actor, sender))?;
-        // let (_, actor_obj, actors) = receiver.await?;
+        let separation = compute_separation(&actor_obj, actors);
+        dir += separation;
+
+        dir = dir.normalize() * 3.0;
 
         if dir.magnitude() > 0.0 {
             tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32))?

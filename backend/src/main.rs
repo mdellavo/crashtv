@@ -120,7 +120,7 @@ async fn main() {
     let tx = game_tx.clone();
     tokio::spawn(async move {
         let mut area = GameArea::new(AREA_SIZE, tx.clone());
-        area.populate(1000, 250);
+        area.populate(1000, 500);
         log::info!("game server running");
         area.process(game_rx).await
     });
