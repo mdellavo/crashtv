@@ -106,7 +106,7 @@ name = "crashtv"
 version = "0.1.0"
 dependencies = [
  "futures-util",
- "kdtree",
+ "kiddo",
  "log",
  "nalgebra",
  "pretty_env_logger",
@@ -421,13 +421,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fad582f4b9e86b6caa621cabeb0963332d92eea04729ab12892c2533951e6440"
 
 [[package]]
-name = "kdtree"
-version = "0.7.0"
+name = "kiddo"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f0a0e9f770b65bac9aad00f97a67ab5c5319effed07f6da385da3c2115e47ba"
+checksum = "fc0a5c92307668140bf7d63a03a23e2da0b0453801fd54888c903cb7f723c293"
 dependencies = [
  "num-traits",
- "thiserror",
 ]
 
 [[package]]

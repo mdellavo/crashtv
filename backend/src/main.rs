@@ -25,7 +25,7 @@ mod actor;
 
 use game::{Client, GameArea, GameMessage, GameResponse};
 
-const AREA_SIZE: u32 = 1000;
+const AREA_SIZE: u32 = 2500;
 
 #[derive(Debug, Deserialize)]
 pub enum ClientMessage {
@@ -56,6 +56,7 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
             let result = websocket_tx.send(Message::binary(buf)).await;
             if let Err(e) = result {
                 log::error!("websocket write error {:?}: {}", client, e);
+                break;
             }
         }
     });
@@ -120,7 +121,7 @@ async fn main() {
     let tx = game_tx.clone();
     tokio::spawn(async move {
         let mut area = GameArea::new(AREA_SIZE, tx.clone());
-        area.populate(1000, 500);
+        area.populate(AREA_SIZE, 500);
         log::info!("game server running");
         area.process(game_rx).await
     });

@@ -110,13 +110,39 @@ export const gameMain = (username: string, props: GameProps) => {
   };
   window.addEventListener('keyup', onKeyUp);
 
-  const animate = () => {
-	  requestAnimationFrame(animate);
-	  renderer.render(scene, camera);
-  }
-  animate();
-
   const area = new GameArea();
+
+  let previousTimestamp : number = null;
+  const animate = (elapsed: number) => {
+
+    if (!previousTimestamp) {
+      previousTimestamp = elapsed;
+    }
+    if (elapsed !== previousTimestamp) {
+      const delta = (elapsed - previousTimestamp) / 1000.0;
+
+      area.objects.forEach((obj: GameObject) => {
+        obj.velocity.x += (obj.acceleration.x * delta);
+        obj.velocity.y += (obj.acceleration.y * delta);
+        obj.velocity.z += (obj.acceleration.z * delta);
+
+        obj.position.x += (obj.velocity.x * delta);
+        obj.position.y += (obj.velocity.y * delta);
+        obj.position.z += (obj.velocity.z * delta);
+
+        var mesh = objectMap.get(obj.objectId);
+        mesh.position.x = obj.position.x;
+        mesh.position.y = obj.position.y;
+        mesh.position.z = obj.position.z;
+      }) ;
+
+    }
+
+	  renderer.render(scene, camera);
+	  requestAnimationFrame(animate);
+    previousTimestamp = elapsed;
+  }
+	requestAnimationFrame(animate);
 
   var timer: any = undefined;
   const client = new Client("ws://localhost:3030/ws", username);

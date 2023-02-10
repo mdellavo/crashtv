@@ -35,22 +35,71 @@ impl Actor {
     }
 }
 
-fn compute_separation(actor: &GameObject, others: Vec<GameObject>) -> Vector3<f32> {
+fn compute_alignment(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32> {
+    let mut average_velocity = Vector3::new(0.0, 0.0, 0.0);
+    let len = others.len();
+    if len == 0 {
+        return average_velocity;
+    }
+    for i in others {
+        average_velocity += i.velocity;
+    }
+    average_velocity = average_velocity.div(len as f32);
+    average_velocity.sub(actor.velocity) / 2.5
+}
+
+fn compute_cohesion(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32> {
+
+    let len = others.len();
+
+    let mut average_position = Vector3::new(0.0, 0.0, 0.0);
+    if len == 0 {
+        return  average_position;
+    }
+
+    for i in others {
+        average_position += i.position;
+    }
+    average_position = average_position.div(len as f32);
+    average_position.sub(actor.position) / 50.0
+}
+
+fn compute_separation(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32> {
     let mut separation = Vector3::new(0.0, 0.0, 0.0);
     for i in others {
-
-        if i.object_id == actor.object_id {
+        let distance = actor.position.metric_distance(&i.position);
+        if distance == 0.0 {
             continue;
         }
-
         let difference_vec = i
             .position
             .sub(actor.position)
             .div(actor.position.metric_distance(&i.position) * 2.0);
         separation -= difference_vec;
     }
-    separation.normalize() * 1.5
+    separation * 2.5
 }
+
+fn compute_attack(actor: &GameObject, players: &Vec<GameObject>) -> Vector3<f32> {
+
+    if players.len() == 0 {
+        return Vector3::new(0.0, 0.0, 0.0);
+    }
+
+    let mut average_velocity = Vector3::new(0.0, 0.0, 0.0);
+    let mut average_position = Vector3::new(0.0, 0.0, 0.0);
+
+    for player in players {
+        average_position += player.position;
+        average_velocity += player.velocity;
+    }
+
+    average_position /= players.len() as f32;
+    average_velocity /= players.len() as f32;
+
+    (average_velocity.sub(actor.velocity) + (average_position.sub(actor.position))) / 10.0
+}
+
 
 pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Result<(), Box<dyn std::error::Error>> {
     let mut interval = time::interval(Duration::from_millis(100));
@@ -61,18 +110,20 @@ pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Resul
         tx.send(GameMessage::Scan(actor.actor_id, sender))?;
         let (_, actor_obj, players, actors) = receiver.await?;
 
-        let mut dir = Vector3::new(0.0, 0.0, 0.0);
-        if let Some(player) = players.iter().nth(0) {
-            dir = (player.position - actor_obj.position).normalize() * 2.0;
+        let alignment = compute_alignment(&actor_obj, &actors);
+        let cohesion = compute_cohesion(&actor_obj, &actors);
+        let separation = compute_separation(&actor_obj, &actors);
+        let attack = compute_attack(&actor_obj, &players);
+
+        let dir = alignment + cohesion + separation + attack;
+
+        // log::debug!("align: {:?} | cohe: {:?} | sep: {:?} -> {:?}", alignment, cohesion, separation, dir);
+
+        if !(dir.x.is_nan() && dir.y.is_nan() && dir.z.is_nan()) {
+            //log::debug!("dir: {:?}", dir);
+            tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32))?;
         }
 
-        let separation = compute_separation(&actor_obj, actors);
-        dir += separation;
 
-        dir = dir.normalize() * 3.0;
-
-        if dir.magnitude() > 0.0 {
-            tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32))?
-        }
     }
 }

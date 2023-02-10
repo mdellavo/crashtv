@@ -29,6 +29,7 @@ export class GameObject {
   objectType: ObjectType;
   position: Vec3;
   velocity: Vec3;
+  acceleration: Vec3;
   health: number;
 
   constructor(
@@ -38,6 +39,7 @@ export class GameObject {
     objectType: ObjectType,
     position: Vec3,
     velocity: Vec3,
+    acceleration: Vec3,
     health: number
   ) {
     this.alive = alive;
@@ -46,6 +48,7 @@ export class GameObject {
     this.objectType = objectType;
     this.position = position;
     this.velocity = velocity;
+    this.acceleration = acceleration;
     this.health = health;
   }
 
@@ -56,8 +59,9 @@ export class GameObject {
     const objType = data[3] as ObjectType;
     const position = Vec3.fromResponse(data[4]);
     const velocity = Vec3.fromResponse(data[5]);
-    const health = data[6];
-    return new GameObject(alive, age, objId, objType, position, velocity, health);
+    const acceleration = Vec3.fromResponse(data[6]);
+    const health = data[7];
+    return new GameObject(alive, age, objId, objType, position, velocity, acceleration, health);
   }
 }
 
