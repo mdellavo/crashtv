@@ -11,9 +11,20 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
+        test: /\.(gltf)$/i,
+        type: 'asset/resource'
+      },
+      {
+        test: /\.(jpg|png)$/i,
+        type: 'asset/resource',
+        generator: {
+          filename: 'images/[name][ext]'
+        },
+      },
+      {
         test: /\.css$/i,
         use: ['style-loader', 'css-loader'],
-      }
+      },
     ],
   },
   resolve: {

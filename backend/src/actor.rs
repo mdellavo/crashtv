@@ -97,7 +97,7 @@ fn compute_attack(actor: &GameObject, players: &Vec<GameObject>) -> Vector3<f32>
     average_position /= players.len() as f32;
     average_velocity /= players.len() as f32;
 
-    (average_velocity.sub(actor.velocity) + (average_position.sub(actor.position))) / 10.0
+    (average_velocity.sub(actor.velocity) + (average_position.sub(actor.position))) / 25.0
 }
 
 

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::net::SocketAddr;
 
+use tokio::time::{self, Duration};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use futures_util::{StreamExt, SinkExt};
@@ -124,6 +125,18 @@ async fn main() {
         area.populate(AREA_SIZE, 500);
         log::info!("game server running");
         area.process(game_rx).await
+    });
+
+    let tx = game_tx.clone();
+    tokio::spawn(async move {
+        let period = Duration::from_millis(4);
+        let mut interval = time::interval(period);
+        loop {
+            let now = interval.tick().await;
+            if let Err(e) = tx.send(GameMessage::Tick(now)) {
+                log::error!("error sending tick: {}", e);
+            }
+        }
     });
 
     let next_client_id = Arc::new(AtomicU32::new(1));

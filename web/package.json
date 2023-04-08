@@ -11,8 +11,10 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/stats.js": "^0.17.0",
     "@types/three": "^0.146.0",
     "css-loader": "^6.7.2",
+    "file-loader": "^6.2.0",
     "html-webpack-plugin": "^5.5.0",
     "style-loader": "^3.3.1",
     "ts-loader": "^9.4.2",
@@ -24,6 +26,7 @@
   "dependencies": {
     "@emotion/css": "^11.10.5",
     "@msgpack/msgpack": "^2.8.0",
+    "stats.js": "^0.17.0",
     "three": "^0.147.0"
   }
 }

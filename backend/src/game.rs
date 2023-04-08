@@ -1,3 +1,5 @@
+extern crate fps_counter;
+
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -9,9 +11,10 @@ use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
-use tokio::time::timeout;
 
 use serde::Serialize;
+
+use fps_counter::FPSCounter;
 
 use crate::net::StateUpdate;
 use crate::actor::{Actor, ActorType, actor_main};
@@ -47,6 +50,9 @@ pub enum GameMessage {
     Goodbye(Client),
     Ping(Client, u64),
     Move(Client, f32, f32, f32),
+
+    // Game Messages
+    Tick(Instant),
 
     // Actor Messages
     Die(u32),
@@ -173,6 +179,9 @@ pub struct GameArea {
     pub players: HashMap<u32, Player>,
     pub game_tx: UnboundedSender<GameMessage>,
     pub actor_index: BinLattice,
+    pub ticks: u32,
+    pub last_tick: Instant,
+    pub fps_counter: FPSCounter,
 }
 
 impl GameArea {
@@ -185,6 +194,9 @@ impl GameArea {
             actor_handles: HashMap::new(),
             game_tx,
             actor_index: BinLattice::new(50),
+            ticks: 0,
+            last_tick: Instant::now(),
+            fps_counter: FPSCounter::default(),
         }
     }
 
@@ -335,9 +347,9 @@ impl GameArea {
         if let Some(player) = self.players.get(&client.client_id) {
             if let Some(player_obj) = self.objects.get_mut(&player.object_id) {
 
-                player_obj.velocity.x = x * 5.0;
-                player_obj.velocity.y = y * 5.0;
-                player_obj.velocity.z = z * 5.0;
+                player_obj.velocity.x = x * 2.0;
+                player_obj.velocity.y = y * 2.0;
+                player_obj.velocity.z = z * 2.0;
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
@@ -391,9 +403,9 @@ impl GameArea {
         if let Some(actor) = self.actors.get(&actor_id) {
             if let Some(actor_obj) = self.objects.get_mut(&actor.object_id) {
 
-                actor_obj.acceleration.x += x * 1.0;
-                actor_obj.acceleration.y += y * 1.0;
-                actor_obj.acceleration.z += z * 1.0;
+                actor_obj.acceleration.x += x * 0.1;
+                actor_obj.acceleration.y += y * 0.1;
+                actor_obj.acceleration.z += z * 0.1;
 
                 // log::debug!("accel: {:?} / vel: {:?} / pos: {:?}", actor_obj.acceleration, actor_obj.velocity, actor_obj.position);
 
@@ -455,6 +467,21 @@ impl GameArea {
         self._handle_actor_death(actor_id).await;
     }
 
+    async fn handle_tick(&mut self, tick_time: Instant) {
+        let now = Instant::now();
+        let delta = now - self.last_tick;
+
+        if delta >= Duration::from_millis(16) {
+            self.ticks += 1;
+            self.tick(delta);
+            self.last_tick = now;
+            let fps = self.fps_counter.tick();
+            if self.ticks % 63 == 0 {
+                log::debug!("ticks: {}", fps);
+            }
+        }
+    }
+
     pub async fn handle_message(&mut self, msg: GameMessage) {
         match msg {
             GameMessage::Hello(client, client_conn, username) => {
@@ -480,6 +507,9 @@ impl GameArea {
             },
             GameMessage::Die(actor_id) => {
                 self.handle_die(actor_id).await;
+            },
+            GameMessage::Tick(tick_time) => {
+                self.handle_tick(tick_time).await;
             },
         }
     }
@@ -532,32 +562,10 @@ impl GameArea {
     }
 
     pub async fn process(&mut self, mut game_rx: UnboundedReceiver<GameMessage>) {
-
-        let mut tick = 0;
-        let mut last_tick = Instant::now();
-        let period = Duration::from_millis(16);
         loop {
-
-            let loop_duration = Instant::now();
-
-            if let Ok(msg) = timeout(period/2, game_rx.recv()).await {
-                if msg.is_none() {
-                    break;
-                }
-                self.handle_message(msg.unwrap()).await;
+            if let Some(msg) = game_rx.recv().await {
+                self.handle_message(msg).await;
             }
-
-            if last_tick.elapsed() > period {
-                self.tick(last_tick.elapsed());
-                last_tick = Instant::now();
-            }
-
-            let elapsed = loop_duration.elapsed();
-            if elapsed > period {
-                log::debug!("tick: {} - process duration: {:?}", tick, loop_duration.elapsed());
-            }
-
-            tick += 1;
         }
     }
 }
