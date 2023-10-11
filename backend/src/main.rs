@@ -23,10 +23,11 @@ use rmps::Serializer;
 mod game;
 mod net;
 mod actor;
+mod terrain;
 
 use game::{Client, GameArea, GameMessage, GameResponse};
 
-const AREA_SIZE: u32 = 2500;
+const AREA_SIZE: u32 = 1000;
 
 #[derive(Debug, Deserialize)]
 pub enum ClientMessage {
@@ -45,6 +46,8 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
     // one thread reading from client_rx and, encoding, and pumping to websocket_tx
     // messages over game conn send client_tx for responses
     tokio::spawn(async move {
+
+        // FIXME this could use some corking
         while let Some(msg) = client_rx.recv().await {
             let mut buf = Vec::new();
             let mut serializer = Serializer::new(&mut buf);
@@ -53,7 +56,6 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
                 log::error!("websocket serialize error {:?}: {}", client, e);
                 break;
             }
-
             let result = websocket_tx.send(Message::binary(buf)).await;
             if let Err(e) = result {
                 log::error!("websocket write error {:?}: {}", client, e);
@@ -122,7 +124,7 @@ async fn main() {
     let tx = game_tx.clone();
     tokio::spawn(async move {
         let mut area = GameArea::new(AREA_SIZE, tx.clone());
-        area.populate(AREA_SIZE, 500);
+        area.populate(0, 0);
         log::info!("game server running");
         area.process(game_rx).await
     });
@@ -131,6 +133,8 @@ async fn main() {
     tokio::spawn(async move {
         let period = Duration::from_millis(4);
         let mut interval = time::interval(period);
+
+
         loop {
             let now = interval.tick().await;
             if let Err(e) = tx.send(GameMessage::Tick(now)) {
@@ -147,6 +151,7 @@ async fn main() {
         .and(warp::ws())
         .and(warp::any().map(move || game_tx.clone()))
         .map(move |client_id: u32, addr: Option<SocketAddr>, ws: warp::ws::Ws, game_conn: UnboundedSender<GameMessage>| {
+
             let client = Client {
                 client_id,
                 addr: addr.unwrap(),
@@ -154,7 +159,7 @@ async fn main() {
 
             log::info!("{:?} connected", client);
 
-            ws.on_upgrade(move |websocket| {
+            ws.with_compression().on_upgrade(move |websocket| {
                 async move {
                     user_connected(client, websocket, game_conn).await;
                 }

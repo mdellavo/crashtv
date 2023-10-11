@@ -18,6 +18,8 @@ use fps_counter::FPSCounter;
 
 use crate::net::StateUpdate;
 use crate::actor::{Actor, ActorType, actor_main};
+use crate::terrain::{Terrain, TerrainType};
+
 
 #[derive(Clone, Debug, Serialize)]
 pub enum ObjectType {
@@ -68,6 +70,8 @@ pub enum GameResponse {
     Pong(u64),
     Goodbye(),
     Notice(String),
+    ElevationMap(u32, u32, Vec<f32>),
+    TerrainMap(u32, u32, Vec<u8>),
 }
 
 impl Player {
@@ -171,8 +175,9 @@ impl BinLattice {
     }
 }
 
+
 pub struct GameArea {
-    pub area_size: u32,
+    pub terrain: Terrain,
     pub objects: HashMap<u32, GameObject>,
     pub actors: HashMap<u32, Actor>,
     pub actor_handles: HashMap<u32, JoinHandle<()>>,
@@ -187,7 +192,7 @@ pub struct GameArea {
 impl GameArea {
     pub fn new(area_size: u32, game_tx: UnboundedSender<GameMessage>) -> GameArea {
         GameArea {
-            area_size,
+            terrain: Terrain::new(area_size),
             objects: HashMap::new(),
             actors: HashMap::new(),
             players: HashMap::new(),
@@ -218,13 +223,16 @@ impl GameArea {
     }
 
     pub fn spawn_actor(&mut self, actor_type: ActorType) -> u32 {
+
         let tx = self.game_tx.clone();
         let mut rng = rand::thread_rng();
 
-        let size = self.area_size as f32;
-        let x = -size + (2.0 * rng.gen::<f32>() * size);
-        let y = 0.0;
-        let z = -size + (2.0 * rng.gen::<f32>() * size);
+        let size = self.terrain.size as f32;
+        let x = rng.gen::<f32>() * size;
+        let z = rng.gen::<f32>() * size;
+
+        let elevation = self.terrain.get_elevation(x.clamp(0.0, size-1.0) as u32, z.clamp(0.0, size-1.0) as u32);
+        let y = elevation;
 
         let obj = self.add_object(ObjectType::Actor, x, y, z);
         obj.velocity.x = -1.0 + 2.0 * rng.gen::<f32>();
@@ -251,12 +259,12 @@ impl GameArea {
     pub fn populate(&mut self, num_items: u32, num_actors: u32) {
         let mut rng = rand::thread_rng();
 
-        let size = self.area_size as f32;
+        let size = self.terrain.size as f32;
         for _n in 0..num_items {
-            let x = -size + (2.0 * rng.gen::<f32>() * size);
+            let x = rng.gen::<f32>() * size;
             let y = 0.0;
-            let z = -size + (2.0 * rng.gen::<f32>() * size);
-            let item = self.add_object(ObjectType::Item, x, y, z);
+            let z = rng.gen::<f32>() * size;
+            self.add_object(ObjectType::Item, x, y, z);
         }
 
         for _n in 0..num_actors {
@@ -268,6 +276,7 @@ impl GameArea {
         if self.players.contains_key(&client.client_id) {
             let result = client_conn.send(GameResponse::Error(1, "Incorrect hello".to_string()));
             if let Err(e) = result {
+
                 log::error!("game response write error {:?}: {}", client, e);
             }
             return;
@@ -282,10 +291,10 @@ impl GameArea {
         }
 
         let mut rng = rand::thread_rng();
-        let size = self.area_size as f32;
-        let x = -size + (2.0 * rng.gen::<f32>() * size);
+        let size = self.terrain.size as f32;
+        let x = rng.gen::<f32>() * size;
         let y = 0.0;
-        let z = -size + (2.0 * rng.gen::<f32>() * size);
+        let z = rng.gen::<f32>() * size;
         let player_obj = self.add_object(ObjectType::Player, x, y, z);
         let player_object_id = player_obj.object_id;
 
@@ -296,11 +305,23 @@ impl GameArea {
             object_id: player_obj.object_id,
         };
 
+        player.send(GameResponse::ElevationMap(
+            self.terrain.size,
+            self.terrain.size,
+            self.terrain.elevation_map.clone(),
+        ));
+        player.send(GameResponse::TerrainMap(
+            self.terrain.size,
+            self.terrain.size,
+            self.terrain.terrain_map.clone(),
+        ));
+
+
         let notice = format!("Hello {}", player.username);
         player.send(GameResponse::Notice(notice));
         player.send(GameResponse::StateUpdate(StateUpdate {
             object_id: player_object_id,
-            area_size: self.area_size,
+            area_size: self.terrain.size,
             objects: self.objects.values().cloned().collect(),
             incremental: false,
         }));
@@ -311,7 +332,7 @@ impl GameArea {
             for other in self.players.values() {
                 other.send(GameResponse::StateUpdate(StateUpdate {
                     object_id: other.object_id,
-                    area_size: self.area_size,
+                    area_size: self.terrain.size,
                     objects: vec![player_obj.clone()],
                     incremental: true
                 }));
@@ -327,7 +348,7 @@ impl GameArea {
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
-                        area_size: self.area_size,
+                        area_size: self.terrain.size,
                         objects: vec![player_obj.clone()],
                         incremental: true
                     }));
@@ -347,14 +368,14 @@ impl GameArea {
         if let Some(player) = self.players.get(&client.client_id) {
             if let Some(player_obj) = self.objects.get_mut(&player.object_id) {
 
-                player_obj.velocity.x = x * 2.0;
-                player_obj.velocity.y = y * 2.0;
-                player_obj.velocity.z = z * 2.0;
+                player_obj.velocity.x = x;
+                player_obj.velocity.y = y;
+                player_obj.velocity.z = z;
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
-                        area_size: self.area_size as u32,
+                        area_size: self.terrain.size as u32,
                         incremental: true,
                         objects: vec![player_obj.clone()],
                     }));
@@ -403,16 +424,16 @@ impl GameArea {
         if let Some(actor) = self.actors.get(&actor_id) {
             if let Some(actor_obj) = self.objects.get_mut(&actor.object_id) {
 
-                actor_obj.acceleration.x += x * 0.1;
-                actor_obj.acceleration.y += y * 0.1;
-                actor_obj.acceleration.z += z * 0.1;
+                actor_obj.acceleration.x += x;
+                actor_obj.acceleration.y += y;
+                actor_obj.acceleration.z += z;
 
                 // log::debug!("accel: {:?} / vel: {:?} / pos: {:?}", actor_obj.acceleration, actor_obj.velocity, actor_obj.position);
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
-                        area_size: self.area_size as u32,
+                        area_size: self.terrain.size as u32,
                         incremental: true,
                         objects: vec![actor_obj.clone()],
                     }));
@@ -428,7 +449,7 @@ impl GameArea {
             }
         }
 
-        let size = self.area_size as f32;
+        let size = self.terrain.size as f32;
         if let Some(actor) = self.actors.remove(&actor_id) {
             if let Some(mut actor_obj) = self.objects.remove(&actor.object_id) {
                 actor_obj.alive = false;
@@ -448,7 +469,7 @@ impl GameArea {
     async fn handle_respawn(&mut self, actor_id: u32) {
         self._handle_actor_death(actor_id).await;
 
-        let size = self.area_size as f32;
+        let size = self.terrain.size as f32;
         let new_actor_id = self.spawn_actor(ActorType::Walker);
 
         if let Some(new_object) = self.objects.get(&new_actor_id) {
@@ -525,22 +546,38 @@ impl GameArea {
                 self.actor_index.remove(obj.position.x, obj.position.z, obj.object_id);
             }
 
-            if obj.acceleration.magnitude() > 3.0 {
-                obj.acceleration = obj.acceleration.normalize() * 3.0;
+            if obj.acceleration.magnitude() > 50.0 {
+                obj.acceleration = obj.acceleration.normalize() * 50.0;
+            }
+
+            if obj.acceleration.magnitude() < 0.1 {
+                obj.acceleration.x = 0.0;
+                obj.acceleration.y = 0.0;
+                obj.acceleration.z = 0.0;
             }
 
             obj.velocity += obj.acceleration;
-            if obj.velocity.magnitude() > 10.0 {
-                obj.velocity = obj.velocity.normalize() * 10.0;
+            if obj.velocity.magnitude() > 100.0 {
+                obj.velocity = obj.velocity.normalize() * 100.0;
+            }
+
+            if obj.velocity.magnitude() < 0.1 {
+                obj.velocity.x = 0.0;
+                obj.velocity.y = 0.0;
+                obj.velocity.z = 0.0;
             }
 
             obj.position += obj.velocity;
+
+            let elevation = self.terrain.get_elevation(obj.position.x.clamp(0.0, self.terrain.size as f32 - 1.0) as u32,
+                                                       obj.position.z.clamp(0.0, self.terrain.size as f32 - 1.0) as u32);
+            obj.position.y = elevation;
 
             if is_actor {
                 self.actor_index.put(obj.position.x, obj.position.z, obj.object_id);
             }
 
-            let area_size = self.area_size as f32;
+            let area_size = self.terrain.size as f32;
             if obj.position.x > area_size {
                 obj.position.x = -area_size;
             }

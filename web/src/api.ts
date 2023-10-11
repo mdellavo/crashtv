@@ -19,6 +19,10 @@ export class Vec3 {
   static fromResponse(data: any) {
     return new Vec3(data[0], data[1], data[2]);
   }
+
+  magnitude(): number {
+    return Math.sqrt(this.x * this.x + this.y + this.y + this.z * this.z);
+  }
 }
 
 export class GameObject {
@@ -64,6 +68,34 @@ export class GameObject {
     return new GameObject(alive, age, objId, objType, position, velocity, acceleration, health);
   }
 }
+
+export class ImageMap {
+  width: number;
+  height: number;
+  data: number[];
+
+  constructor(width: number, height: number, data: number[]) {
+    this.width = width;
+    this.height = height;
+    this.data = data;
+  }
+
+  static fromResponse(data: any) {
+    const width = data[0];
+    const height = data[1];
+    const imageData = data[2];
+    return new this(width, height, imageData);
+  }
+}
+
+export class TerrainMap extends ImageMap {
+
+}
+
+export class ElevationMap extends ImageMap {
+
+}
+
 
 export class GameArea {
   areaSize: number;
@@ -179,7 +211,8 @@ const decoders = {
   "Pong": (data: any) => Pong.fromResponse(data),
   "Notice": (data: any) => Notice.fromResponse(data),
   "Error": (data: any) => ErrorMessage.fromResponse(data),
-
+  "TerrainMap": (data: any) => TerrainMap.fromResponse(data),
+  "ElevationMap": (data: any) => ElevationMap.fromResponse(data),
 } as {[key: string]: any};
 
 

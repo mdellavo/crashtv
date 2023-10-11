@@ -7,14 +7,16 @@ edition = "2021"
 
 [dependencies]
 fps_counter = "2.0.0"
-futures-util = "0.3.25"
-kiddo = "0.2.4"
-log = "0.4.17"
+futures-util = "0.3.28"
+kiddo = "0.2.5"
+log = "0.4.20"
 nalgebra = { version ="0.31.4", features = ["serde-serialize"] }
 pretty_env_logger = "0.4.0"
 rand = "0.8.5"
-rmp-serde = "1.1.1"
-serde = "1.0.151"
-serde_derive = "1.0.151"
+rmp-serde = "1.1.2"
+serde = "1.0.188"
+serde_derive = "1.0.188"
 tokio = { version = "1", features = ["full"] }
-warp = "0.3"
+warp = { version = "0.3", git = "https://github.com/kazk/warp.git", branch = "feature/permessage-deflate" }
+noise = { version = "0.8.2", features = ["images"] }
+image = { version = "0.24.7" }
