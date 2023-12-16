@@ -1,11 +1,13 @@
 extern crate fps_counter;
 
+use std::ops::{AddAssign};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use rand::Rng;
 use nalgebra::Vector3;
+
+use rand::Rng;
 
 use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 use tokio::sync::oneshot;
@@ -16,9 +18,13 @@ use serde::Serialize;
 
 use fps_counter::FPSCounter;
 
+use bevy_ecs::prelude::*;
+
 use crate::net::StateUpdate;
 use crate::actor::{Actor, ActorType, actor_main};
 use crate::terrain::{Terrain, TerrainType};
+
+use crate::data_structs::{BinLattice};
 
 
 #[derive(Clone, Debug, Serialize)]
@@ -59,7 +65,7 @@ pub enum GameMessage {
     // Actor Messages
     Die(u32),
     Respawn(u32),
-    Scan(u32, oneshot::Sender<(Actor, GameObject, Vec<GameObject>, Vec<GameObject>)>),
+    Scan(u32, oneshot::Sender<(Actor, FrozenGameObject, Vec<FrozenGameObject>, Vec<FrozenGameObject>)>),
     ActorMove(u32, f32, f32, f32),
 }
 
@@ -83,101 +89,55 @@ impl Player {
     }
 }
 
+#[derive(Component, Debug, Copy, Clone)]
+struct Position { value: Vector3<f32> }
+
+#[derive(Component, Debug, Copy, Clone)]
+struct Velocity { value: Vector3<f32>  }
+
+#[derive(Component, Debug, Copy, Clone)]
+struct Acceleration { value: Vector3<f32> }
+
+#[derive(Component)]
+struct Alive;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct GameObject {
     pub alive: bool,
     pub age: u32,
     pub object_id: u32,
+    pub entity: Entity,
     pub object_type: ObjectType,
-    pub position: Vector3<f32>,
-    pub velocity: Vector3<f32>,
-    pub acceleration: Vector3<f32>,
     pub health: u8,
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FrozenGameObject {
+    pub object: GameObject,
+    pub position: Vector3<f32>,
+    pub velocity: Vector3<f32>,
+    pub acceleration: Vector3<f32>,
+}
+
 impl GameObject {
-    pub fn new(object_type: ObjectType) -> GameObject {
+    pub fn new(object_type: ObjectType, entity: Entity) -> GameObject {
         GameObject {
+            object_type,
+            entity,
             alive: true,
             age: 0,
-            object_type,
             object_id: GAME_OBJECT_COUNTER.fetch_add(1, Ordering::Relaxed) as u32,
-            position: Vector3::new(0.0, 0.0, 0.0),
-            velocity: Vector3::new(0.0, 0.0, 0.0),
-            acceleration: Vector3::new(0.0, 0.0, 0.0),
             health: 100,
         }
     }
 }
 
-pub struct BinLattice {
-    factor: i32,
-    bins: HashMap<(i32, i32), Vec<u32>>,
-}
-
-impl BinLattice {
-    fn new(factor: i32) -> BinLattice {
-        BinLattice {
-            factor,
-            bins: HashMap::new(),
-        }
-    }
-
-    fn key(&self, x: f32, y: f32) -> (i32, i32) {
-        (
-            x as i32 / self.factor,
-            y as i32 / self.factor
-        )
-    }
-
-    fn remove(&mut self, x: f32, y: f32, object_id: u32) {
-        let key = self.key(x, y);
-
-        if let Some(bin) = self.bins.get_mut(&key) {
-            if let Some(index) = bin.iter().position(|oid| *oid == object_id) {
-                bin.swap_remove(index);
-            }
-        }
-    }
-
-    fn put(&mut self, x: f32, y: f32, object_id: u32) {
-        let key = self.key(x, y);
-
-        if let Some(bin) = self.bins.get_mut(&key) {
-            bin.push(object_id);
-        } else {
-            let mut b: Vec<u32> = Vec::new();
-            b.push(object_id);
-            self.bins.insert(key, b);
-        }
-    }
-
-    fn get_nearby(&self, x: f32, y: f32, range: f32) -> Vec<u32> {
-
-        let min_x = (x - range/2.0) as i32 / self.factor;
-        let max_x = (x + range/2.0) as i32 / self.factor;
-        let min_y = (y - range/2.0) as i32 / self.factor;
-        let max_y = (y + range/2.0) as i32 / self.factor;
-
-        let mut rv: Vec<u32> = Vec::new();
-        for i in min_x .. max_x  {
-            for j in min_y .. max_y {
-                let key = (i, j);
-                if let Some(bin) = self.bins.get(&key) {
-                    rv.append(&mut bin.clone());
-                }
-            }
-        }
-
-        // log::debug!("scan from {},{} -> {},{} to {},{} found {}", x, y, min_x, min_y, max_x, max_y, rv.len());
-
-        rv
-    }
-}
-
-
 pub struct GameArea {
+    pub world: World,
+    pub schedule: Schedule,
     pub terrain: Terrain,
+    pub entities: HashMap<Entity, u32>, // maps entity id to object id
     pub objects: HashMap<u32, GameObject>,
     pub actors: HashMap<u32, Actor>,
     pub actor_handles: HashMap<u32, JoinHandle<()>>,
@@ -191,8 +151,11 @@ pub struct GameArea {
 
 impl GameArea {
     pub fn new(area_size: u32, game_tx: UnboundedSender<GameMessage>) -> GameArea {
-        GameArea {
+        let mut area = GameArea {
+            world: World::new(),
+            schedule: Schedule::default(),
             terrain: Terrain::new(area_size),
+            entities: HashMap::new(),
             objects: HashMap::new(),
             actors: HashMap::new(),
             players: HashMap::new(),
@@ -202,7 +165,33 @@ impl GameArea {
             ticks: 0,
             last_tick: Instant::now(),
             fps_counter: FPSCounter::default(),
+        };
+
+        area.schedule.add_systems(|mut query: Query<(Entity, &mut Position, &mut Velocity, &Acceleration)>| {
+            for (entity, mut position, mut velocity, acceleration) in &mut query {
+                velocity.value.add_assign(acceleration.value);
+                position.value.add_assign(velocity.value);
+            }
+        });
+
+        area
+    }
+
+    fn freeze_game_object(&self, object: &GameObject) -> FrozenGameObject {
+        let pos = self.world.entity(object.entity).get::<Position>().unwrap();
+        let vel = self.world.entity(object.entity).get::<Velocity>().unwrap();
+        let accel = self.world.entity(object.entity).get::<Acceleration>().unwrap();
+
+        FrozenGameObject {
+            object: object.clone(),
+            position: pos.value.clone(),
+            velocity: vel.value.clone(),
+            acceleration: accel.value.clone(),
         }
+    }
+
+    fn freeze_game_object_mut(&mut self, object: &GameObject) -> FrozenGameObject {
+        self.freeze_game_object(object)
     }
 
     pub fn has_username(&self, username: &String) -> bool {
@@ -210,16 +199,45 @@ impl GameArea {
         usernames.iter().any(|x| x.eq(username))
     }
 
-    pub fn add_object(&mut self, object_type: ObjectType, x: f32, y: f32, z: f32) -> &mut GameObject {
-        let mut obj = GameObject::new(object_type.clone());
-
-        obj.position.x = x;
-        obj.position.y = y;
-        obj.position.z = z;
-
+    pub fn add_object(&mut self, object_type: ObjectType, entity: Entity, x: f32, y: f32, z: f32) -> &mut GameObject {
+        let obj = GameObject::new(object_type.clone(), entity);
         let key = obj.object_id;
+        self.entities.insert(entity, obj.object_id);
         self.objects.insert(key, obj);
         self.objects.get_mut(&key).unwrap()
+    }
+
+    pub fn add_item(&mut self, x: f32, y: f32, z: f32) -> &mut GameObject {
+        let entity = self.world.spawn((
+            Position { value: Vector3::new(x, y, z) },
+        )).id();
+
+        let obj = self.add_object(ObjectType::Item, entity, x, y, z);
+        obj
+    }
+
+    pub fn add_actor(&mut self, x: f32, y: f32, z: f32) -> &mut GameObject {
+        let entity = self.world.spawn((
+            Alive,
+            Position { value: Vector3::new(x, y, z) },
+            Velocity { value: Vector3::new(0.0, 0.0, 0.0) },
+        )).id();
+
+        let obj = self.add_object(ObjectType::Actor, entity, x, y, z);
+        obj
+    }
+
+
+    pub fn add_player(&mut self, x: f32, y: f32, z: f32) -> &mut GameObject {
+        let entity = self.world.spawn((
+            Alive,
+            Position { value: Vector3::new(x, y, z) },
+            Velocity { value: Vector3::new(0.0, 0.0, 0.0) },
+            Acceleration { value: Vector3::new(0.0, 0.0, 0.0) },
+        )).id();
+
+        let obj = self.add_object(ObjectType::Player, entity, x, y, z);
+        obj
     }
 
     pub fn spawn_actor(&mut self, actor_type: ActorType) -> u32 {
@@ -234,9 +252,7 @@ impl GameArea {
         let elevation = self.terrain.get_elevation(x.clamp(0.0, size-1.0) as u32, z.clamp(0.0, size-1.0) as u32);
         let y = elevation;
 
-        let obj = self.add_object(ObjectType::Actor, x, y, z);
-        obj.velocity.x = -1.0 + 2.0 * rng.gen::<f32>();
-        obj.velocity.z = -1.0 + 2.0 * rng.gen::<f32>();
+        let obj = self.add_actor(x, y, z);
 
         let object_id = obj.object_id;
         self.actor_index.put(x, z, object_id);
@@ -264,7 +280,7 @@ impl GameArea {
             let x = rng.gen::<f32>() * size;
             let y = 0.0;
             let z = rng.gen::<f32>() * size;
-            self.add_object(ObjectType::Item, x, y, z);
+            self.add_item(x, y, z);
         }
 
         for _n in 0..num_actors {
@@ -295,7 +311,7 @@ impl GameArea {
         let x = rng.gen::<f32>() * size;
         let y = 0.0;
         let z = rng.gen::<f32>() * size;
-        let player_obj = self.add_object(ObjectType::Player, x, y, z);
+        let player_obj = self.add_player(x, y, z);
         let player_object_id = player_obj.object_id;
 
         let player = Player {
@@ -316,13 +332,12 @@ impl GameArea {
             self.terrain.terrain_map.clone(),
         ));
 
-
         let notice = format!("Hello {}", player.username);
         player.send(GameResponse::Notice(notice));
         player.send(GameResponse::StateUpdate(StateUpdate {
             object_id: player_object_id,
             area_size: self.terrain.size,
-            objects: self.objects.values().cloned().collect(),
+            objects: self.objects.values().map(|obj| { self.freeze_game_object(obj) }).collect(),
             incremental: false,
         }));
 
@@ -333,7 +348,7 @@ impl GameArea {
                 other.send(GameResponse::StateUpdate(StateUpdate {
                     object_id: other.object_id,
                     area_size: self.terrain.size,
-                    objects: vec![player_obj.clone()],
+                    objects: vec![self.freeze_game_object(player_obj)],
                     incremental: true
                 }));
             }
@@ -349,7 +364,7 @@ impl GameArea {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
                         area_size: self.terrain.size,
-                        objects: vec![player_obj.clone()],
+                        objects: vec![self.freeze_game_object(&player_obj)],
                         incremental: true
                     }));
                 }
@@ -366,27 +381,27 @@ impl GameArea {
 
     async fn handle_move(&mut self, client: Client, x: f32, y: f32, z: f32) {
         if let Some(player) = self.players.get(&client.client_id) {
-            if let Some(player_obj) = self.objects.get_mut(&player.object_id) {
+            if let Some(player_obj) = self.objects.get(&player.object_id) {
 
-                player_obj.velocity.x = x;
-                player_obj.velocity.y = y;
-                player_obj.velocity.z = z;
+                // FIXME handle player move
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
                         object_id: other.object_id,
                         area_size: self.terrain.size as u32,
                         incremental: true,
-                        objects: vec![player_obj.clone()],
+                        objects: vec![self.freeze_game_object(player_obj)],
                     }));
                 };
-
             }
         }
     }
 
     fn query(&self, actor_id: u32, actor: &GameObject, object_type: ObjectType, limit: usize) -> Vec<GameObject>{
-        let object_ids = self.actor_index.get_nearby(actor.position.x, actor.position.z, 50.0);
+
+        let actor_pos = self.world.entity(actor.entity).get::<Position>().unwrap();
+
+        let object_ids = self.actor_index.get_nearby(actor_pos.value.x, actor_pos.value.z, 50.0);
         let mut objects : Vec<GameObject> = object_ids
             .iter()
             .filter(|object_id| **object_id != actor.object_id)
@@ -395,38 +410,57 @@ impl GameArea {
             .collect();
 
         objects.sort_by(|a, b| {
-            let dist_a = a.position.metric_distance(&actor.position);
-            let dist_b = b.position.metric_distance(&actor.position);
+
+            let a_pos = self.world.entity(a.entity).get::<Position>().unwrap();
+            let b_pos = self.world.entity(b.entity).get::<Position>().unwrap();
+
+            let dist_a = a_pos.value.metric_distance(&actor_pos.value);
+            let dist_b = b_pos.value.metric_distance(&actor_pos.value);
             dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         objects.iter().take(limit).cloned().collect()
     }
 
-    async fn handle_scan(&mut self, actor_id: u32, response_conn: oneshot::Sender<(Actor, GameObject, Vec<GameObject>, Vec<GameObject>)>) {
+    async fn handle_scan(&mut self, actor_id: u32, response_conn: oneshot::Sender<(Actor, FrozenGameObject, Vec<FrozenGameObject>, Vec<FrozenGameObject>)>) {
         let actor = self.actors.get(&actor_id).unwrap();
         let actor_obj = self.objects.get(&actor.object_id).unwrap();
+        let actor_pos = self.world.entity(actor_obj.entity).get::<Position>().unwrap();
+        let actor_vel = self.world.entity(actor_obj.entity).get::<Velocity>().unwrap();
+        let actor_accel = self.world.entity(actor_obj.entity).get::<Acceleration>().unwrap();
 
-        let players: Vec<GameObject> = self.players
+        let frozen_actor = FrozenGameObject {
+            object: actor_obj.clone(),
+            position: actor_pos.value,
+            velocity: actor_vel.value,
+            acceleration: actor_accel.value,
+        };
+
+        let players: Vec<FrozenGameObject> = self.players
                                            .values()
                                            .flat_map(|player| self.objects.get(&player.object_id))
-                                           .filter(|player| player.position.metric_distance(&actor_obj.position) < 100.0)
-                                           .cloned()
+                                           .filter(|player| {
+                                               let player_pos = self.world.entity(player.entity).get::<Position>().unwrap();
+                                               player_pos.value.metric_distance(&actor_pos.value) < 100.0
+                                           })
+                                           .map(|player| {
+                                               self.freeze_game_object(player)
+                                           })
                                            .collect();
-        let actors: Vec<GameObject> = self.query(actor_id, &actor_obj, ObjectType::Actor, 20);
+        let actors: Vec<FrozenGameObject> = self.query(actor_id, &actor_obj, ObjectType::Actor, 20).iter().map(|actor| {
+            self.freeze_game_object(actor)
+        }).collect();
 
-        if let Err(e) = response_conn.send((actor.clone(), actor_obj.clone(), players, actors)) {
+        if let Err(e) = response_conn.send((actor.clone(), frozen_actor, players, actors)) {
             log::error!("error sending response: {:?}", e);
         }
     }
 
     async fn handle_actor_move(&mut self, actor_id: u32, x: f32, y: f32, z: f32) {
         if let Some(actor) = self.actors.get(&actor_id) {
-            if let Some(actor_obj) = self.objects.get_mut(&actor.object_id) {
+            if let Some(actor_obj) = self.objects.get(&actor.object_id) {
 
-                actor_obj.acceleration.x += x;
-                actor_obj.acceleration.y += y;
-                actor_obj.acceleration.z += z;
+                // FIXME send impulse to actor
 
                 // log::debug!("accel: {:?} / vel: {:?} / pos: {:?}", actor_obj.acceleration, actor_obj.velocity, actor_obj.position);
 
@@ -435,7 +469,7 @@ impl GameArea {
                         object_id: other.object_id,
                         area_size: self.terrain.size as u32,
                         incremental: true,
-                        objects: vec![actor_obj.clone()],
+                        objects: vec![self.freeze_game_object(actor_obj)],
                     }));
                 };
             }
@@ -459,7 +493,7 @@ impl GameArea {
                         object_id: other.object_id,
                         area_size: size as u32,
                         incremental: true,
-                        objects: vec![actor_obj.clone()],
+                        objects: vec![self.freeze_game_object(&actor_obj)],
                     }));
                 }
             }
@@ -478,7 +512,7 @@ impl GameArea {
                     object_id: other.object_id,
                     area_size: size as u32,
                     incremental: true,
-                    objects: vec![new_object.clone()],
+                    objects: vec![self.freeze_game_object(new_object)],
                 }));
             }
         }
@@ -536,60 +570,46 @@ impl GameArea {
     }
 
     pub fn tick(&mut self, elapsed: Duration) {
+
+        self.schedule.run(&mut self.world);
+
         self.objects.values_mut().for_each(|obj| {
 
-            let delta = elapsed.as_millis() as f32 / 1000.0;
+            // if is_actor {
+            //     self.actor_index.remove(obj.position.x, obj.position.z, obj.object_id);
+            // }
 
-            let is_actor = matches!(obj.object_type, ObjectType::Actor);
+            // if obj.acceleration.magnitude() > 50.0 {
+            //     obj.acceleration = obj.acceleration.normalize() * 50.0;
+            // }
 
-            if is_actor {
-                self.actor_index.remove(obj.position.x, obj.position.z, obj.object_id);
-            }
+            // if obj.acceleration.magnitude() < 0.1 {
+            //     obj.acceleration.x = 0.0;
+            //     obj.acceleration.y = 0.0;
+            //     obj.acceleration.z = 0.0;
+            // }
 
-            if obj.acceleration.magnitude() > 50.0 {
-                obj.acceleration = obj.acceleration.normalize() * 50.0;
-            }
+            // obj.velocity += obj.acceleration;
+            // if obj.velocity.magnitude() > 100.0 {
+            //     obj.velocity = obj.velocity.normalize() * 100.0;
+            // }
 
-            if obj.acceleration.magnitude() < 0.1 {
-                obj.acceleration.x = 0.0;
-                obj.acceleration.y = 0.0;
-                obj.acceleration.z = 0.0;
-            }
+            // if obj.velocity.magnitude() < 0.1 {
+            //     obj.velocity.x = 0.0;
+            //     obj.velocity.y = 0.0;
+            //     obj.velocity.z = 0.0;
+            // }
 
-            obj.velocity += obj.acceleration;
-            if obj.velocity.magnitude() > 100.0 {
-                obj.velocity = obj.velocity.normalize() * 100.0;
-            }
+            // obj.position += obj.velocity;
 
-            if obj.velocity.magnitude() < 0.1 {
-                obj.velocity.x = 0.0;
-                obj.velocity.y = 0.0;
-                obj.velocity.z = 0.0;
-            }
+            // let elevation = self.terrain.get_elevation(obj.position.x.clamp(0.0, self.terrain.size as f32 - 1.0) as u32,
+            //                                            obj.position.z.clamp(0.0, self.terrain.size as f32 - 1.0) as u32);
+            // obj.position.y = elevation;
 
-            obj.position += obj.velocity;
+            // if is_actor {
+            //     self.actor_index.put(obj.position.x, obj.position.z, obj.object_id);
+            // }
 
-            let elevation = self.terrain.get_elevation(obj.position.x.clamp(0.0, self.terrain.size as f32 - 1.0) as u32,
-                                                       obj.position.z.clamp(0.0, self.terrain.size as f32 - 1.0) as u32);
-            obj.position.y = elevation;
-
-            if is_actor {
-                self.actor_index.put(obj.position.x, obj.position.z, obj.object_id);
-            }
-
-            let area_size = self.terrain.size as f32;
-            if obj.position.x > area_size {
-                obj.position.x = -area_size;
-            }
-            if obj.position.x < -area_size {
-                obj.position.x = area_size;
-            }
-            if obj.position.z > area_size {
-                obj.position.z = -area_size;
-            }
-            if obj.position.z < -area_size {
-                obj.position.z = area_size;
-            }
 
             // log::debug!("pos: {:?} | vel: {:?}", obj.position, obj.velocity);
 

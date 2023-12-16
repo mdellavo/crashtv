@@ -57,14 +57,17 @@ export class GameObject {
   }
 
   static fromResponse(data: any) {
-    const alive = data[0];
-    const age = data[1]
-    const objId = data[2];
-    const objType = data[3] as ObjectType;
-    const position = Vec3.fromResponse(data[4]);
-    const velocity = Vec3.fromResponse(data[5]);
-    const acceleration = Vec3.fromResponse(data[6]);
-    const health = data[7];
+    console.log("data", data);
+    const alive = data[0][0];
+    const age = data[0][1]
+    const objId = data[0][2];
+    const objType = data[0][3] as ObjectType;
+    const health = data[0][4];
+
+    const position = Vec3.fromResponse(data[1]);
+    const velocity = Vec3.fromResponse(data[2]);
+    const acceleration = Vec3.fromResponse(data[3]);
+
     return new GameObject(alive, age, objId, objType, position, velocity, acceleration, health);
   }
 }

@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::time::{self, Duration};
 
-use crate::game::{GameObject, GameMessage};
+use crate::game::{FrozenGameObject, GameMessage};
 
 static ACTOR_COUNTER: AtomicI32 = AtomicI32::new(1);
 
@@ -35,7 +35,7 @@ impl Actor {
     }
 }
 
-fn compute_alignment(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32> {
+fn compute_alignment(actor: &FrozenGameObject, others: &Vec<FrozenGameObject>) -> Vector3<f32> {
     let mut average_velocity = Vector3::new(0.0, 0.0, 0.0);
     let len = others.len();
     if len == 0 {
@@ -48,7 +48,7 @@ fn compute_alignment(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f3
     average_velocity.sub(actor.velocity) / 2.5
 }
 
-fn compute_cohesion(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32> {
+fn compute_cohesion(actor: &FrozenGameObject, others: &Vec<FrozenGameObject>) -> Vector3<f32> {
 
     let len = others.len();
 
@@ -64,7 +64,7 @@ fn compute_cohesion(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32
     average_position.sub(actor.position) / 50.0
 }
 
-fn compute_separation(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f32> {
+fn compute_separation(actor: &FrozenGameObject, others: &Vec<FrozenGameObject>) -> Vector3<f32> {
     let mut separation = Vector3::new(0.0, 0.0, 0.0);
     for i in others {
         let distance = actor.position.metric_distance(&i.position);
@@ -80,7 +80,7 @@ fn compute_separation(actor: &GameObject, others: &Vec<GameObject>) -> Vector3<f
     separation * 2.5
 }
 
-fn compute_attack(actor: &GameObject, players: &Vec<GameObject>) -> Vector3<f32> {
+fn compute_attack(actor: &FrozenGameObject, players: &Vec<FrozenGameObject>) -> Vector3<f32> {
 
     if players.len() == 0 {
         return Vector3::new(0.0, 0.0, 0.0);
@@ -106,7 +106,7 @@ pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Resul
     loop {
         interval.tick().await;
 
-        let (sender, receiver) = oneshot::channel::<(Actor, GameObject, Vec<GameObject>, Vec<GameObject>)>();
+        let (sender, receiver) = oneshot::channel::<(Actor, FrozenGameObject, Vec<FrozenGameObject>, Vec<FrozenGameObject>)>();
         tx.send(GameMessage::Scan(actor.actor_id, sender))?;
         let (_, actor_obj, players, actors) = receiver.await?;
 

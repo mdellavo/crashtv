@@ -1,6 +1,7 @@
 // #![deny(warnings)]
 
 extern crate pretty_env_logger;
+
 #[macro_use]
 extern crate rmp_serde as rmps;
 extern crate log;
@@ -24,6 +25,7 @@ mod game;
 mod net;
 mod actor;
 mod terrain;
+mod data_structs;
 
 use game::{Client, GameArea, GameMessage, GameResponse};
 

@@ -600,9 +600,6 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
       });
 
       const yourClient = objectMap.get(state.yourClientId);
-      camera.position.x = yourClient.mesh.position.x;
-      camera.position.z = yourClient.mesh.position.z - 250;
-      camera.lookAt(yourClient.mesh.position);
 
       controls.update();
 
