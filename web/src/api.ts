@@ -1,4 +1,7 @@
-import { decode as msgpack_decode, encode as msgpack_encode } from "@msgpack/msgpack";
+import {
+  decode as msgpack_decode,
+  encode as msgpack_encode,
+} from "@msgpack/msgpack";
 
 export enum ObjectType {
   Item,
@@ -26,7 +29,6 @@ export class Vec3 {
 }
 
 export class GameObject {
-
   alive: boolean;
   age: number;
   objectId: number;
@@ -44,7 +46,7 @@ export class GameObject {
     position: Vec3,
     velocity: Vec3,
     acceleration: Vec3,
-    health: number
+    health: number,
   ) {
     this.alive = alive;
     this.age = age;
@@ -58,7 +60,7 @@ export class GameObject {
 
   static fromResponse(data: any) {
     const alive = data[0][0];
-    const age = data[0][1]
+    const age = data[0][1];
     const objId = data[0][2];
     const objType = data[0][3] as ObjectType;
     const health = data[0][4];
@@ -67,7 +69,16 @@ export class GameObject {
     const velocity = Vec3.fromResponse(data[2]);
     const acceleration = Vec3.fromResponse(data[3]);
 
-    return new GameObject(alive, age, objId, objType, position, velocity, acceleration, health);
+    return new GameObject(
+      alive,
+      age,
+      objId,
+      objType,
+      position,
+      velocity,
+      acceleration,
+      health,
+    );
   }
 }
 
@@ -90,14 +101,9 @@ export class ImageMap {
   }
 }
 
-export class TerrainMap extends ImageMap {
+export class TerrainMap extends ImageMap {}
 
-}
-
-export class ElevationMap extends ImageMap {
-
-}
-
+export class ElevationMap extends ImageMap {}
 
 export class GameArea {
   areaSize: number;
@@ -114,15 +120,14 @@ export class GameArea {
     if (!state.incremental) {
       var yourObj = this.objects.get(state.yourClientId);
       this.objects.clear();
-      if (yourObj)
-        this.objects.set(yourObj.objectId, yourObj);
+      if (yourObj) this.objects.set(yourObj.objectId, yourObj);
     }
 
     var current = new Set<number>();
     var touched = new Set<number>();
 
     var deadIds = [];
-    for(var i=0; i<state.objects.length; i++) {
+    for (var i = 0; i < state.objects.length; i++) {
       var obj = state.objects[i];
       if (obj.alive) {
         this.objects.set(obj.objectId, obj);
@@ -132,18 +137,28 @@ export class GameArea {
       }
     }
 
-    var addedIds = new Set(Array.from(touched).filter(x => !current.has(x)));
-    var removedIds = new Set(Array.from(current).filter(x => !touched.has(x)));
-    for (var i=0; i<deadIds.length; i++) {
+    var addedIds = new Set(Array.from(touched).filter((x) => !current.has(x)));
+    var removedIds = new Set(
+      Array.from(current).filter((x) => !touched.has(x)),
+    );
+    for (var i = 0; i < deadIds.length; i++) {
       removedIds.add(deadIds[i]);
     }
 
-    var updatedIds = new Set(Array.from(touched).filter(x => !addedIds.has(x) || !removedIds.has(x)))
+    var updatedIds = new Set(
+      Array.from(touched).filter((x) => !addedIds.has(x) || !removedIds.has(x)),
+    );
 
-    var added = new Set<GameObject>(Array.from(addedIds).map(x => this.objects.get(x)));
-    var updated = new Set<GameObject>(Array.from(updatedIds).map(x => this.objects.get(x)));
+    var added = new Set<GameObject>(
+      Array.from(addedIds).map((x) => this.objects.get(x)),
+    );
+    var updated = new Set<GameObject>(
+      Array.from(updatedIds).map((x) => this.objects.get(x)),
+    );
 
-    var removed = new Set<GameObject>(Array.from(removedIds).map(x => this.objects.get(x)));
+    var removed = new Set<GameObject>(
+      Array.from(removedIds).map((x) => this.objects.get(x)),
+    );
     removedIds.forEach((removedId) => {
       this.objects.delete(removedId);
     });
@@ -158,7 +173,12 @@ export class StateUpdate {
   incremental: boolean;
   objects: GameObject[];
 
-  constructor(yourClientId: number, areaSize: number, incremental: boolean, objects: GameObject[]) {
+  constructor(
+    yourClientId: number,
+    areaSize: number,
+    incremental: boolean,
+    objects: GameObject[],
+  ) {
     this.yourClientId = yourClientId;
     this.areaSize = areaSize;
     this.incremental = incremental;
@@ -209,24 +229,22 @@ export class ErrorMessage {
 }
 
 const decoders = {
-  "StateUpdate": (data: any) => StateUpdate.fromResponse(data),
-  "Pong": (data: any) => Pong.fromResponse(data),
-  "Notice": (data: any) => Notice.fromResponse(data),
-  "Error": (data: any) => ErrorMessage.fromResponse(data),
-  "TerrainMap": (data: any) => TerrainMap.fromResponse(data),
-  "ElevationMap": (data: any) => ElevationMap.fromResponse(data),
-} as {[key: string]: any};
+  StateUpdate: (data: any) => StateUpdate.fromResponse(data),
+  Pong: (data: any) => Pong.fromResponse(data),
+  Notice: (data: any) => Notice.fromResponse(data),
+  Error: (data: any) => ErrorMessage.fromResponse(data),
+  TerrainMap: (data: any) => TerrainMap.fromResponse(data),
+  ElevationMap: (data: any) => ElevationMap.fromResponse(data),
+} as { [key: string]: any };
 
-
-const decodeResponse = (data: {[key: string]: any}) => {
-  const rv = {} as {[key: string]: any};
+const decodeResponse = (data: { [key: string]: any }) => {
+  const rv = {} as { [key: string]: any };
   for (let k in data) {
     const decoder = decoders[k];
     rv[k] = decoder(data[k]);
   }
   return rv;
 };
-
 
 export class Client {
   url: string;
@@ -239,7 +257,6 @@ export class Client {
   }
 
   connect(eventHandler: any) {
-
     const callHandler = (name: string, arg?: any) => {
       var handler = eventHandler[name];
       if (handler) {
@@ -249,14 +266,14 @@ export class Client {
 
     try {
       this.socket = new WebSocket(this.url);
-    } catch(error) {
-      callHandler('Error', error);
+    } catch (error) {
+      callHandler("Error", error);
     }
 
     this.socket.binaryType = "arraybuffer";
 
-    this.socket.addEventListener('message', (event) => {
-      const rawResponse = msgpack_decode(event.data) as {string: any};
+    this.socket.addEventListener("message", (event) => {
+      const rawResponse = msgpack_decode(event.data) as { string: any };
       const response = decodeResponse(rawResponse);
 
       for (let k in response) {
@@ -264,20 +281,20 @@ export class Client {
       }
     });
 
-    this.socket.addEventListener('close', (event) => {
-      console.log('Close', event);
+    this.socket.addEventListener("close", (event) => {
+      console.log("Close", event);
       this.socket = undefined;
-      callHandler('Close', event);
+      callHandler("Close", event);
     });
 
-    this.socket.addEventListener('error', (event) => {
-      console.log('Error', event);
-      callHandler('Error', event);
+    this.socket.addEventListener("error", (event) => {
+      console.log("Error", event);
+      callHandler("Error", event);
     });
 
-    this.socket.addEventListener('open', (event) => {
-      console.log('Open', event);
-      callHandler('Open', event);
+    this.socket.addEventListener("open", (event) => {
+      console.log("Open", event);
+      callHandler("Open", event);
       this.sendHello(this.username);
     });
   }
@@ -292,19 +309,19 @@ export class Client {
 
   sendHello(username: string) {
     this.send({
-      "Hello": username,
+      Hello: username,
     });
   }
 
   sendPing() {
     this.send({
-      "Ping": new Date().getTime()
+      Ping: new Date().getTime(),
     });
   }
 
   sendMove(x: number, y: number, z: number) {
     this.send({
-      "Move": [x, y, z],
+      Move: [x, y, z],
     });
   }
 }

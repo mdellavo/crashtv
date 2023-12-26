@@ -23,20 +23,31 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
-} from 'three';
+} from "three";
 
-import { GLTF } from 'three/examples/jsm/loaders/GLTFLoader';
+import { GLTF } from "three/examples/jsm/loaders/GLTFLoader";
 
-import Stats from 'stats.js';
+import Stats from "stats.js";
 
-import { Client, GameArea, GameObject, StateUpdate, Pong, Notice, ObjectType, ElevationMap, TerrainMap, ImageMap } from './api';
+import {
+  Client,
+  GameArea,
+  GameObject,
+  StateUpdate,
+  Pong,
+  Notice,
+  ObjectType,
+  ElevationMap,
+  TerrainMap,
+  ImageMap,
+} from "./api";
 
-import SkyTop from './textures/sky/top.jpg';
-import SkyBottom from './textures/sky/bottom.jpg';
-import SkyFront from './textures/sky/front.jpg';
-import SkyBack from './textures/sky/back.jpg';
-import SkyRight from './textures/sky/right.jpg';
-import SkyLeft from './textures/sky/left.jpg';
+import SkyTop from "./textures/sky/top.jpg";
+import SkyBottom from "./textures/sky/bottom.jpg";
+import SkyFront from "./textures/sky/front.jpg";
+import SkyBack from "./textures/sky/back.jpg";
+import SkyRight from "./textures/sky/right.jpg";
+import SkyLeft from "./textures/sky/left.jpg";
 
 enum AnimationState {
   Idle,
@@ -45,25 +56,24 @@ enum AnimationState {
 }
 
 class ObjectModel {
-  mesh: Object3D|Group;
+  mesh: Object3D | Group;
   animationMixer: AnimationMixer;
   animationState: AnimationState;
   currentAnimation?: AnimationAction;
 
-  constructor(mesh: Object3D|Group) {
+  constructor(mesh: Object3D | Group) {
     this.mesh = mesh;
     this.animationMixer = new AnimationMixer(mesh);
     this.animationState = AnimationState.Idle;
   }
 
-  get animations() : AnimationClip[] {
+  get animations(): AnimationClip[] {
     return [];
   }
 
   playAnimationClip(name: string) {
     var clip = AnimationClip.findByName(this.animations, name);
     if (clip) {
-
       if (this.currentAnimation) {
         this.currentAnimation.stop();
         this.currentAnimation = null;
@@ -110,21 +120,18 @@ class GLTFObjectModel extends ObjectModel {
     this.gltf = gltf;
   }
 
-  get animations() : AnimationClip[] {
+  get animations(): AnimationClip[] {
     return this.gltf.animations || [];
   }
-
 }
 
-
 const cloneGltf = (gltf: GLTF): GLTF => {
-
   const clone = {
     animations: gltf.animations,
-    scene: gltf.scene.clone(true)
+    scene: gltf.scene.clone(true),
   };
 
-  const skinnedMeshes = {} as {[key: string]: any};
+  const skinnedMeshes = {} as { [key: string]: any };
 
   gltf.scene.traverse((node: any) => {
     if (node.isSkinnedMesh) {
@@ -132,8 +139,8 @@ const cloneGltf = (gltf: GLTF): GLTF => {
     }
   });
 
-  const cloneBones = {} as {[key: string]: any};
-  const cloneSkinnedMeshes = {} as {[key: string]: any};
+  const cloneBones = {} as { [key: string]: any };
+  const cloneSkinnedMeshes = {} as { [key: string]: any };
 
   clone.scene.traverse((node: any) => {
     if (node.isBone) {
@@ -158,8 +165,9 @@ const cloneGltf = (gltf: GLTF): GLTF => {
     }
 
     cloneSkinnedMesh.bind(
-        new Skeleton(orderedCloneBones, skeleton.boneInverses),
-        cloneSkinnedMesh.matrixWorld);
+      new Skeleton(orderedCloneBones, skeleton.boneInverses),
+      cloneSkinnedMesh.matrixWorld,
+    );
   }
 
   clone.scene.traverse((node: any) => {
@@ -169,22 +177,20 @@ const cloneGltf = (gltf: GLTF): GLTF => {
   });
 
   return clone as GLTF;
-}
+};
 
 const ringGeom = new TorusGeometry(8, 3, 16, 100);
 
-
 const buildItemMesh = (assets: Map<String, any>, item: GameObject): Mesh => {
-  const material = new MeshStandardMaterial({color: 0xFFDF00});
+  const material = new MeshStandardMaterial({ color: 0xffdf00 });
   const mesh = new Mesh(ringGeom, material);
   mesh.position.x = item.position.x;
   mesh.position.y = item.position.y;
   mesh.position.z = item.position.z;
   return mesh;
-}
+};
 
 const buildActorMesh = (assets: Map<String, any>, item: GameObject): GLTF => {
-
   var keys = Array.from(assets.keys());
   var key = keys[Math.floor(Math.random() * keys.length)];
 
@@ -197,7 +203,7 @@ const buildActorMesh = (assets: Map<String, any>, item: GameObject): GLTF => {
   gltf.scene.position.z = SCALE * item.position.z;
 
   return gltf;
-}
+};
 
 const buildPlayerMesh = (assets: Map<String, any>, item: GameObject): GLTF => {
   const gltf = cloneGltf(assets.get("Dino"));
@@ -209,18 +215,21 @@ const buildPlayerMesh = (assets: Map<String, any>, item: GameObject): GLTF => {
   gltf.scene.position.z = SCALE * item.position.z;
 
   return gltf;
-}
+};
 
 export interface GameProps {
-    onNotice(message: string): void;
-    onClose(): void;
-    onError(error: any): void;
+  onNotice(message: string): void;
+  onClose(): void;
+  onError(error: any): void;
 }
 
 const SCALE = 1000;
 
-export const gameMain = (username: string, props: GameProps, assets: Map<String, any>) => {
-
+export const gameMain = (
+  username: string,
+  props: GameProps,
+  assets: Map<String, any>,
+) => {
   const renderer = new WebGLRenderer({
     antialias: true,
     alpha: true,
@@ -243,9 +252,12 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
   scene.add(dirLight);
 
   scene.background = new CubeTextureLoader().load([
-    SkyRight, SkyLeft,
-    SkyTop, SkyBottom,
-    SkyFront, SkyBack,
+    SkyRight,
+    SkyLeft,
+    SkyTop,
+    SkyBottom,
+    SkyFront,
+    SkyBack,
   ]);
 
   var elevationMapMesh: Mesh;
@@ -253,18 +265,18 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
   var terrainTexture: Texture;
   var elevationTexture: Texture;
 
-  const renderElevationTextureFromImageMap = (map: ImageMap) : Texture => {
+  const renderElevationTextureFromImageMap = (map: ImageMap): Texture => {
     const data = new Uint8Array(4 * map.width * map.height);
     const size = map.width * map.height;
 
     var idx = 0;
-    for (let i = 0; i<size; i ++) {
-	    const stride = i * 4;
+    for (let i = 0; i < size; i++) {
+      const stride = i * 4;
       const value = Math.ceil(map.data[idx++] * 255);
       data[stride] = value;
-	    data[stride + 1] = value;
-	    data[stride + 2] = value;
-	    data[stride + 3] = 255;
+      data[stride + 1] = value;
+      data[stride + 2] = value;
+      data[stride + 3] = 255;
     }
 
     const texture = new DataTexture(data, map.width, map.height);
@@ -287,7 +299,7 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
     TropicalRainForest: 0xc,
     TropicalSeasonalForest: 0xd,
     Tundra: 0xe,
-  } as {[k: string]: number};
+  } as { [k: string]: number };
 
   const TerrainColors = {
     Ocean: [0, 153, 152],
@@ -305,13 +317,13 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
     TropicalRainForest: [0, 255, 0],
     TropicalSeasonalForest: [51, 255, 51],
     Tundra: [204, 229, 255],
-  } as {[k: string]: number[]};
+  } as { [k: string]: number[] };
 
-  const renderTerrainTextureFromImageMap = (map: ImageMap) : Texture => {
+  const renderTerrainTextureFromImageMap = (map: ImageMap): Texture => {
     const data = new Uint8Array(4 * map.width * map.height);
     const size = map.width * map.height;
 
-    const terrainColorMap = {} as {[k: number]: number[]};
+    const terrainColorMap = {} as { [k: number]: number[] };
     for (let terrainKey in TerrainType) {
       let terrainValue = TerrainType[terrainKey];
       let terrainColor = TerrainColors[terrainKey];
@@ -319,16 +331,16 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
     }
 
     var idx = 0;
-    for (let i = 0; i<size; i ++) {
-	    const stride = i * 4;
+    for (let i = 0; i < size; i++) {
+      const stride = i * 4;
 
       const terrainValue = map.data[idx++];
       const terrainColor = terrainColorMap[terrainValue];
 
       data[stride] = terrainColor[0];
-	    data[stride + 1] = terrainColor[1];
-	    data[stride + 2] = terrainColor[2];
-	    data[stride + 3] = 255;
+      data[stride + 1] = terrainColor[1];
+      data[stride + 2] = terrainColor[2];
+      data[stride + 3] = 255;
     }
 
     const texture = new DataTexture(data, map.width, map.height);
@@ -341,14 +353,25 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
   let phi = 60;
   let onMouseDownPhi = 60;
 
-  const camera = new PerspectiveCamera(90, window.innerWidth / window.innerHeight, .01, 1000000);
+  const camera = new PerspectiveCamera(
+    90,
+    window.innerWidth / window.innerHeight,
+    0.01,
+    1000000,
+  );
 
   const updateCamera = () => {
-    camera.position.x = radious * Math.sin(theta * Math.PI / 360) * Math.cos( phi * Math.PI / 360);
-    camera.position.y = radious * Math.sin(phi * Math.PI / 360);
-    camera.position.z = radious * Math.cos(theta * Math.PI / 360) * Math.cos( phi * Math.PI / 360);
+    camera.position.x =
+      radious *
+      Math.sin((theta * Math.PI) / 360) *
+      Math.cos((phi * Math.PI) / 360);
+    camera.position.y = radious * Math.sin((phi * Math.PI) / 360);
+    camera.position.z =
+      radious *
+      Math.cos((theta * Math.PI) / 360) *
+      Math.cos((phi * Math.PI) / 360);
     camera.updateMatrix();
-  }
+  };
   updateCamera();
 
   const objectsGroup = new Group();
@@ -360,46 +383,46 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-  window.addEventListener('resize', onWindowResize);
+  };
+  window.addEventListener("resize", onWindowResize);
 
-  const keyMap = {} as {[key: string]: boolean};
+  const keyMap = {} as { [key: string]: boolean };
 
   const checkKeys = () => {
     var [x, y, z] = [0, 0, 0];
-    if (keyMap['w'] || keyMap["ArrowUp"]) {
+    if (keyMap["w"] || keyMap["ArrowUp"]) {
       z = 1;
     }
-    if (keyMap['s'] || keyMap["ArrowDown"]) {
+    if (keyMap["s"] || keyMap["ArrowDown"]) {
       z = -1;
     }
-    if (keyMap['a'] || keyMap["ArrowLeft"]) {
+    if (keyMap["a"] || keyMap["ArrowLeft"]) {
       x = 1;
     }
-    if (keyMap['d'] || keyMap["ArrowRight"]) {
+    if (keyMap["d"] || keyMap["ArrowRight"]) {
       x = -1;
     }
     client.sendMove(x, y, z);
-  }
+  };
 
-  var keyInterval :number|undefined;
+  var keyInterval: number | undefined;
   const onKeyDown = (e: KeyboardEvent) => {
     e.preventDefault();
     keyMap[e.key] = true;
     if (!keyInterval) {
-      keyInterval = window.setInterval(checkKeys, 1000/24);
+      keyInterval = window.setInterval(checkKeys, 1000 / 24);
     }
   };
-  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener("keydown", onKeyDown);
 
   const onKeyUp = (e: KeyboardEvent) => {
     e.preventDefault();
     delete keyMap[e.key];
-    if(!keyMap) {
+    if (!keyMap) {
       window.clearInterval(keyInterval);
     }
   };
-  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener("keyup", onKeyUp);
 
   const mouseState = {
     pressed: false,
@@ -410,47 +433,52 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
     e.preventDefault();
     mouseState.pressed = true;
     onMouseDownTheta = theta;
-		onMouseDownPhi = phi;
-		mouseState.onMouseDownPosition.x = e.clientX;
-		mouseState.onMouseDownPosition.y = e.clientY;
+    onMouseDownPhi = phi;
+    mouseState.onMouseDownPosition.x = e.clientX;
+    mouseState.onMouseDownPosition.y = e.clientY;
   };
-  window.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mouseleave', onMouseDown);
+  window.addEventListener("mousedown", onMouseDown);
+  window.addEventListener("mouseleave", onMouseDown);
 
   const onMouseUp = (e: MouseEvent) => {
     e.preventDefault();
     mouseState.pressed = false;
 
-		mouseState.onMouseDownPosition.x = e.clientX - mouseState.onMouseDownPosition.x;
-		mouseState.onMouseDownPosition.y = e.clientY - mouseState.onMouseDownPosition.y;
+    mouseState.onMouseDownPosition.x =
+      e.clientX - mouseState.onMouseDownPosition.x;
+    mouseState.onMouseDownPosition.y =
+      e.clientY - mouseState.onMouseDownPosition.y;
   };
-  window.addEventListener('mouseup', onMouseUp);
+  window.addEventListener("mouseup", onMouseUp);
 
   const onMouseMove = (e: MouseEvent) => {
     e.preventDefault();
 
     if (mouseState.pressed) {
-      theta = - ((e.clientX - mouseState.onMouseDownPosition.x) * 0.5) + onMouseDownTheta;
-      phi = ((e.clientY - mouseState.onMouseDownPosition.y) * 0.5) + onMouseDownPhi;
+      theta =
+        -((e.clientX - mouseState.onMouseDownPosition.x) * 0.5) +
+        onMouseDownTheta;
+      phi =
+        (e.clientY - mouseState.onMouseDownPosition.y) * 0.5 + onMouseDownPhi;
       phi = Math.min(180, Math.max(0, phi));
       updateCamera();
     }
   };
-  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener("mousemove", onMouseMove);
 
   const onMouseWheel = (e: WheelEvent) => {
     e.preventDefault();
-		radious -= e.deltaY;
+    radious -= e.deltaY;
     updateCamera();
   };
-  window.addEventListener('mousewheel', onMouseWheel, {passive: false});
+  window.addEventListener("mousewheel", onMouseWheel, { passive: false });
 
   const area = new GameArea();
 
   var stats = new Stats();
-  document.body.appendChild( stats.dom );
+  document.body.appendChild(stats.dom);
 
-  let previousTimestamp : number = null;
+  let previousTimestamp: number = null;
   let tick = 0;
   const animate = (elapsed: number) => {
     stats.begin();
@@ -462,26 +490,28 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
       const delta = (elapsed - previousTimestamp) / 1000.0;
 
       area.objects.forEach((obj: GameObject) => {
-
         var model = objectMap.get(obj.objectId);
         model.animationMixer.update(delta);
 
         if (obj.objectType.toString() !== "Item") {
-          obj.velocity.x += (obj.acceleration.x * delta);
-          obj.velocity.y += (obj.acceleration.y * delta);
-          obj.velocity.z += (obj.acceleration.z * delta);
+          obj.velocity.x += obj.acceleration.x * delta;
+          obj.velocity.y += obj.acceleration.y * delta;
+          obj.velocity.z += obj.acceleration.z * delta;
 
           const isMoving = obj.velocity.magnitude() > 0;
 
           if (isMoving && model.animationState !== AnimationState.Running) {
             model.setAnimationState(AnimationState.Running);
-          } else if (!isMoving && model.animationState !== AnimationState.Idle) {
+          } else if (
+            !isMoving &&
+            model.animationState !== AnimationState.Idle
+          ) {
             model.setAnimationState(AnimationState.Idle);
           }
 
-          obj.position.x += (obj.velocity.x * delta);
-          obj.position.y += (obj.velocity.y * delta);
-          obj.position.z += (obj.velocity.z * delta);
+          obj.position.x += obj.velocity.x * delta;
+          obj.position.y += obj.velocity.y * delta;
+          obj.position.z += obj.velocity.z * delta;
 
           model.mesh.position.x = obj.position.x;
           model.mesh.position.y = obj.position.y;
@@ -489,14 +519,18 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
 
           if (isMoving) {
             let dir = new Vector3(0, 0, 0);
-            dir.add(new Vector3(obj.position.x, obj.position.y, obj.position.z));
-            dir.add(new Vector3(obj.velocity.x, obj.velocity.y, obj.velocity.z));
+            dir.add(
+              new Vector3(obj.position.x, obj.position.y, obj.position.z),
+            );
+            dir.add(
+              new Vector3(obj.velocity.x, obj.velocity.y, obj.velocity.z),
+            );
             model.mesh.lookAt(dir);
           }
         }
 
         if (obj.objectType.toString() === "Item") {
-          model.mesh.rotation.y = tick * .00001;
+          model.mesh.rotation.y = tick * 0.00001;
         }
 
         tick += 1;
@@ -508,41 +542,41 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
 
     requestAnimationFrame(animate);
     previousTimestamp = elapsed;
-  }
+  };
 
   requestAnimationFrame(animate);
 
   var timer: any = undefined;
   const client = new Client("ws://localhost:3030/ws", username);
   const onInterval = () => {
-    client.sendPing()
+    client.sendPing();
   };
 
   client.connect({
-    "Open": () => {
+    Open: () => {
       timer = window.setInterval(onInterval, 5000);
     },
-    "Close": () => {
+    Close: () => {
       if (timer) {
         window.clearInterval(timer);
       }
-      props.onClose()
+      props.onClose();
     },
-    "Error": (e: any) => {
+    Error: (e: any) => {
       if (timer) {
         window.clearInterval(timer);
       }
       props.onError(e);
     },
-    "Pong": (pong: Pong) => {
+    Pong: (pong: Pong) => {
       const now = new Date().getTime();
       console.log("pong", now - pong.timestamp, "ms");
     },
-    "Notice": (notice: Notice) => {
+    Notice: (notice: Notice) => {
       console.log("notice from server:", notice.message);
       props.onNotice(notice.message);
     },
-    "ElevationMap": (map: ElevationMap) => {
+    ElevationMap: (map: ElevationMap) => {
       elevationTexture = renderElevationTextureFromImageMap(map);
       elevationTexture.needsUpdate = true;
       elevationTexture.generateMipmaps = true;
@@ -552,13 +586,13 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
         map: elevationTexture,
       });
       elevationMapMesh = new Mesh(elevationMapGeom, elevationMapMaterial);
-      elevationMapMesh.rotateX(Math.PI/4);
-      elevationMapMesh.rotateY(Math.PI/4);
-      elevationMapMesh.rotateZ(Math.PI/4);
+      elevationMapMesh.rotateX(Math.PI / 4);
+      elevationMapMesh.rotateY(Math.PI / 4);
+      elevationMapMesh.rotateZ(Math.PI / 4);
       elevationMapMesh.position.z = -10;
       camera.add(elevationMapMesh);
     },
-    "TerrainMap": (map: TerrainMap) => {
+    TerrainMap: (map: TerrainMap) => {
       terrainTexture = renderTerrainTextureFromImageMap(map);
       terrainTexture.needsUpdate = true;
       terrainTexture.generateMipmaps = true;
@@ -570,27 +604,32 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
         map: terrainTexture,
       });
       terrainMapMesh = new Mesh(terrainMapGeom, terrainMapMaterial);
-      terrainMapMesh.rotateX(Math.PI/4);
-      terrainMapMesh.rotateY(Math.PI/4);
-      terrainMapMesh.rotateZ(Math.PI/4);
+      terrainMapMesh.rotateX(Math.PI / 4);
+      terrainMapMesh.rotateY(Math.PI / 4);
+      terrainMapMesh.rotateZ(Math.PI / 4);
       terrainMapMesh.position.z = -10;
       camera.add(terrainMapMesh);
     },
-    "StateUpdate": (state: StateUpdate) => {
+    StateUpdate: (state: StateUpdate) => {
       if (!state.incremental) {
         document.getElementById("loading").remove();
 
         objectsGroup.clear();
         objectMap.clear();
 
-        const planeGeometry = new PlaneGeometry(SCALE * state.areaSize, SCALE * state.areaSize, 1000, 1000);
+        const planeGeometry = new PlaneGeometry(
+          SCALE * state.areaSize,
+          SCALE * state.areaSize,
+          1000,
+          1000,
+        );
         const planeMaterial = new MeshStandardMaterial({
           map: terrainTexture,
           displacementMap: elevationTexture,
         });
         const plane = new Mesh(planeGeometry, planeMaterial);
         plane.position.y = -300;
-        plane.rotateX(-Math.PI/2);
+        plane.rotateX(-Math.PI / 2);
         scene.add(plane);
       }
 
@@ -600,7 +639,6 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
         var model = objectMap.get(obj.objectId);
 
         if (!model) {
-
           if (obj.objectType.toString() === "Item") {
             obj.position.y += 25; // FIXME
             model = new ObjectModel(buildItemMesh(assets, obj));
@@ -637,5 +675,4 @@ export const gameMain = (username: string, props: GameProps, assets: Map<String,
       updateCamera;
     },
   });
-
 };

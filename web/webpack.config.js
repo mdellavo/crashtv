@@ -1,52 +1,52 @@
-const path = require('path');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
+const path = require("path");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
 
 module.exports = {
-  entry: './src/index.tsx',
+  entry: "./src/index.tsx",
   module: {
     rules: [
       {
         test: /\.tsx?$/,
-        use: 'ts-loader',
+        use: "ts-loader",
         exclude: /node_modules/,
       },
       {
         test: /\.(gltf)$/i,
-        type: 'asset/resource'
+        type: "asset/resource",
       },
       {
         test: /\.(jpg|png)$/i,
-        type: 'asset/resource',
+        type: "asset/resource",
         generator: {
-          filename: 'images/[name][ext]'
+          filename: "images/[name][ext]",
         },
       },
       {
         test: /\.css$/i,
-        use: ['style-loader', 'css-loader'],
+        use: ["style-loader", "css-loader"],
       },
     ],
   },
   resolve: {
-    extensions: ['.tsx', '.ts', '.js'],
+    extensions: [".tsx", ".ts", ".js"],
   },
-  mode: 'development',
-  devtool: 'inline-source-map',
+  mode: "development",
+  devtool: "inline-source-map",
   devServer: {
-    static: './dist',
+    static: "./dist",
   },
   plugins: [
     new HtmlWebpackPlugin({
-      title: 'CrashTV',
+      title: "CrashTV",
     }),
   ],
   output: {
-    filename: '[name].bundle.js',
-    path: path.resolve(__dirname, 'dist'),
+    filename: "[name].bundle.js",
+    path: path.resolve(__dirname, "dist"),
     clean: true,
-    publicPath: '/',
+    publicPath: "/",
   },
   optimization: {
-    runtimeChunk: 'single',
+    runtimeChunk: "single",
   },
 };

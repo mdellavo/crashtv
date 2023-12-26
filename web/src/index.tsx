@@ -1,10 +1,9 @@
-import './style.css';
+import "./style.css";
 
-import { DOMcreateElement } from './render';
-import { WelcomeScreen, LoadingMessage } from './components';
-import { gameMain } from './game';
-import { loadingMain } from './models';
-
+import { DOMcreateElement } from "./render";
+import { WelcomeScreen, LoadingMessage } from "./components";
+import { gameMain } from "./game";
+import { loadingMain } from "./models";
 
 const setBody = (el: any) => {
   document.body.innerHTML = "";
@@ -12,7 +11,6 @@ const setBody = (el: any) => {
 };
 
 const main = () => {
-
   const loadingStart = Date.now();
   const onLoaded = (assets: Map<string, any>) => {
     const loadingStop = Date.now();
@@ -21,17 +19,13 @@ const main = () => {
     console.log("loaded in", delta / 1000);
 
     const goToWelcome = (message?: string) => {
-      const el = (
-        <WelcomeScreen onJoin={onJoin} message={message} />
-      );
+      const el = <WelcomeScreen onJoin={onJoin} message={message} />;
 
       setBody(el);
     };
 
     const gameProps = {
-      onNotice: (message: string) => {
-
-      },
+      onNotice: (message: string) => {},
       onClose: () => {
         goToWelcome("Disconnected from the server :(");
       },
@@ -44,9 +38,7 @@ const main = () => {
       console.log("Join", username);
       document.body.innerHTML = "";
 
-      const loading = (
-        <LoadingMessage message="Joining..." id="loading"/>
-      );
+      const loading = <LoadingMessage message="Joining..." id="loading" />;
       setBody(loading);
 
       gameMain(username, gameProps, assets);
@@ -55,13 +47,11 @@ const main = () => {
     goToWelcome();
   };
 
-  const loading = (
-    <LoadingMessage/>
-  );
+  const loading = <LoadingMessage />;
   setBody(loading);
 
   loadingMain({
     onLoaded: onLoaded,
   });
-}
+};
 main();

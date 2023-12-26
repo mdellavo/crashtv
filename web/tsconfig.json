@@ -1,18 +1,15 @@
- {
-    "compilerOptions": {
-      "outDir": "./dist/",
-      "sourceMap": true,
-      "noImplicitAny": true,
-      "jsx": "react",
-      "jsxFactory": "DOMcreateElement",
-      "module": "commonjs",
-      "esModuleInterop": true,
-      "target": "es5",
-      "allowJs": true,
-      "lib": [
-        "es6",
-        "dom"
-      ],
-      "moduleResolution": "node"
-    }
+{
+  "compilerOptions": {
+    "outDir": "./dist/",
+    "sourceMap": true,
+    "noImplicitAny": true,
+    "jsx": "react",
+    "jsxFactory": "DOMcreateElement",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "target": "es5",
+    "allowJs": true,
+    "lib": ["es6", "dom"],
+    "moduleResolution": "node"
   }
+}
