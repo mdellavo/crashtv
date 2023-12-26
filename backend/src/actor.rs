@@ -1,5 +1,5 @@
-use std::ops::Sub;
 use std::ops::Div;
+use std::ops::Sub;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use nalgebra::Vector3;
@@ -49,12 +49,11 @@ fn compute_alignment(actor: &FrozenGameObject, others: &Vec<FrozenGameObject>) -
 }
 
 fn compute_cohesion(actor: &FrozenGameObject, others: &Vec<FrozenGameObject>) -> Vector3<f32> {
-
     let len = others.len();
 
     let mut average_position = Vector3::new(0.0, 0.0, 0.0);
     if len == 0 {
-        return  average_position;
+        return average_position;
     }
 
     for i in others {
@@ -81,7 +80,6 @@ fn compute_separation(actor: &FrozenGameObject, others: &Vec<FrozenGameObject>) 
 }
 
 fn compute_attack(actor: &FrozenGameObject, players: &Vec<FrozenGameObject>) -> Vector3<f32> {
-
     if players.len() == 0 {
         return Vector3::new(0.0, 0.0, 0.0);
     }
@@ -100,13 +98,20 @@ fn compute_attack(actor: &FrozenGameObject, players: &Vec<FrozenGameObject>) -> 
     (average_velocity.sub(actor.velocity) + (average_position.sub(actor.position))) / 25.0
 }
 
-
-pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn actor_main(
+    actor: Actor,
+    tx: UnboundedSender<GameMessage>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut interval = time::interval(Duration::from_millis(100));
     loop {
         interval.tick().await;
 
-        let (sender, receiver) = oneshot::channel::<(Actor, FrozenGameObject, Vec<FrozenGameObject>, Vec<FrozenGameObject>)>();
+        let (sender, receiver) = oneshot::channel::<(
+            Actor,
+            FrozenGameObject,
+            Vec<FrozenGameObject>,
+            Vec<FrozenGameObject>,
+        )>();
         tx.send(GameMessage::Scan(actor.actor_id, sender))?;
         let (_, actor_obj, players, actors) = receiver.await?;
 
@@ -121,9 +126,12 @@ pub async fn actor_main(actor: Actor, tx: UnboundedSender<GameMessage>) -> Resul
 
         if !(dir.x.is_nan() && dir.y.is_nan() && dir.z.is_nan()) {
             //log::debug!("dir: {:?}", dir);
-            tx.send(GameMessage::ActorMove(actor.actor_id, dir.x as f32, dir.y as f32, dir.z as f32))?;
+            tx.send(GameMessage::ActorMove(
+                actor.actor_id,
+                dir.x as f32,
+                dir.y as f32,
+                dir.z as f32,
+            ))?;
         }
-
-
     }
 }

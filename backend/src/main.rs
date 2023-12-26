@@ -6,26 +6,26 @@ extern crate pretty_env_logger;
 extern crate rmp_serde as rmps;
 extern crate log;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
-use tokio::time::{self, Duration};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::time::{self, Duration};
 
-use futures_util::{StreamExt, SinkExt};
+use futures_util::{SinkExt, StreamExt};
 
-use warp::ws::{WebSocket, Message};
+use warp::ws::{Message, WebSocket};
 use warp::Filter;
 
-use serde::Serialize;
 use rmps::Serializer;
+use serde::Serialize;
 
+mod actor;
+mod data_structs;
 mod game;
 mod net;
-mod actor;
 mod terrain;
-mod data_structs;
 
 use game::{Client, GameArea, GameMessage, GameResponse};
 
@@ -39,8 +39,11 @@ pub enum ClientMessage {
     Move(f32, f32, f32),
 }
 
-async fn user_connected(client: Client, websocket: WebSocket, game_conn: UnboundedSender<GameMessage>) {
-
+async fn user_connected(
+    client: Client,
+    websocket: WebSocket,
+    game_conn: UnboundedSender<GameMessage>,
+) {
     let (mut websocket_tx, mut websocket_rx) = websocket.split();
     let (client_tx, mut client_rx) = unbounded_channel::<GameResponse>();
 
@@ -48,7 +51,6 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
     // one thread reading from client_rx and, encoding, and pumping to websocket_tx
     // messages over game conn send client_tx for responses
     tokio::spawn(async move {
-
         // FIXME this could use some corking
         while let Some(msg) = client_rx.recv().await {
             let mut buf = Vec::new();
@@ -81,7 +83,7 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
             break;
         }
 
-        let msg : ClientMessage = match rmp_serde::from_slice(encoded_msg.as_bytes()) {
+        let msg: ClientMessage = match rmp_serde::from_slice(encoded_msg.as_bytes()) {
             Ok(msg) => msg,
             Err(e) => {
                 log::error!("websocket deserialize error {:?}: {}", client, e);
@@ -92,16 +94,10 @@ async fn user_connected(client: Client, websocket: WebSocket, game_conn: Unbound
         let game_msg = match msg {
             ClientMessage::Hello(username) => {
                 GameMessage::Hello(client, client_tx.clone(), username)
-            },
-            ClientMessage::Ping(timestamp) => {
-                GameMessage::Ping(client, timestamp)
-            },
-            ClientMessage::Goodbye() => {
-                GameMessage::Goodbye(client)
-            },
-            ClientMessage::Move(x, y, z) => {
-                GameMessage::Move(client, x, y, z)
-            },
+            }
+            ClientMessage::Ping(timestamp) => GameMessage::Ping(client, timestamp),
+            ClientMessage::Goodbye() => GameMessage::Goodbye(client),
+            ClientMessage::Move(x, y, z) => GameMessage::Move(client, x, y, z),
         };
 
         let result = game_conn.send(game_msg);
@@ -126,7 +122,7 @@ async fn main() {
     let tx = game_tx.clone();
     tokio::spawn(async move {
         let mut area = GameArea::new(AREA_SIZE, tx.clone());
-        area.populate(0, 0);
+        // area.populate(100, 100);
         log::info!("game server running");
         area.process(game_rx).await
     });
@@ -135,7 +131,6 @@ async fn main() {
     tokio::spawn(async move {
         let period = Duration::from_millis(4);
         let mut interval = time::interval(period);
-
 
         loop {
             let now = interval.tick().await;
@@ -152,21 +147,24 @@ async fn main() {
         .and(warp::addr::remote())
         .and(warp::ws())
         .and(warp::any().map(move || game_tx.clone()))
-        .map(move |client_id: u32, addr: Option<SocketAddr>, ws: warp::ws::Ws, game_conn: UnboundedSender<GameMessage>| {
+        .map(
+            move |client_id: u32,
+                  addr: Option<SocketAddr>,
+                  ws: warp::ws::Ws,
+                  game_conn: UnboundedSender<GameMessage>| {
+                let client = Client {
+                    client_id,
+                    addr: addr.unwrap(),
+                };
 
-            let client = Client {
-                client_id,
-                addr: addr.unwrap(),
-            };
+                log::info!("{:?} connected", client);
 
-            log::info!("{:?} connected", client);
-
-            ws.with_compression().on_upgrade(move |websocket| {
-                async move {
-                    user_connected(client, websocket, game_conn).await;
-                }
-            })
-        });
+                ws.with_compression()
+                    .on_upgrade(move |websocket| async move {
+                        user_connected(client, websocket, game_conn).await;
+                    })
+            },
+        );
 
     warp::serve(route).run(([127, 0, 0, 1], 3030)).await;
 }

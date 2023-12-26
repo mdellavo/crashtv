@@ -1,15 +1,15 @@
 extern crate noise;
 
-use std::time::Instant;
 use std::path::Path;
 use std::thread;
+use std::time::Instant;
 
 use rand::Rng;
 
+use noise::utils::{NoiseMap, NoiseMapBuilder, PlaneMapBuilder};
 use noise::{Fbm, Perlin};
-use noise::utils::{PlaneMapBuilder, NoiseMapBuilder, NoiseMap};
 
-use image::{ImageBuffer, RgbImage, Rgb};
+use image::{ImageBuffer, Rgb, RgbImage};
 
 #[derive(Clone, Debug, Serialize)]
 pub enum TerrainType {
@@ -30,14 +30,12 @@ pub enum TerrainType {
     Tundra = 0xe,
 }
 
-
 #[derive(Clone, Debug, Serialize)]
 pub struct Terrain {
     pub size: u32,
     pub elevation_map: Vec<f32>,
     pub terrain_map: Vec<u8>,
 }
-
 
 impl Terrain {
     pub fn new(size: u32) -> Terrain {
@@ -98,7 +96,7 @@ impl Terrain {
             } else if elevation > 0.3 {
                 if moisture < 0.16 {
                     return TerrainType::TemperateDesert;
-                } else if moisture < 0.6  {
+                } else if moisture < 0.6 {
                     return TerrainType::Grassland;
                 } else if moisture < 0.83 {
                     return TerrainType::TemperateDeciduousForest;
@@ -146,7 +144,9 @@ impl Terrain {
         let mut moisture_image: RgbImage = ImageBuffer::new(size, size);
 
         fn get_map_value(map: &NoiseMap, x: u32, y: u32) -> f32 {
-            (map.get_value(x as usize, y as usize) * 0.5 + 0.5).clamp(0.0, 1.0).powf(2.0) as f32
+            (map.get_value(x as usize, y as usize) * 0.5 + 0.5)
+                .clamp(0.0, 1.0)
+                .powf(2.0) as f32
         }
 
         let mut terrain = Terrain {
@@ -155,10 +155,9 @@ impl Terrain {
             terrain_map: vec![],
         };
 
-
         for x in 0..size {
             for y in 0..size {
-                let elevation =  get_map_value(&elevation_map, x, y);
+                let elevation = get_map_value(&elevation_map, x, y);
                 terrain.elevation_map.push(elevation);
 
                 let moisture = get_map_value(&moisture_map, x, y);
@@ -171,19 +170,11 @@ impl Terrain {
 
                 let elevation_pixel = elevation_image.get_pixel_mut(x, y);
                 let elevation_val = (elevation * 255.0).round() as u8;
-                *elevation_pixel = Rgb([
-                    elevation_val,
-                    elevation_val,
-                    elevation_val,
-                ]);
+                *elevation_pixel = Rgb([elevation_val, elevation_val, elevation_val]);
 
                 let moisture_pixel = moisture_image.get_pixel_mut(x, y);
                 let moisture_val = (moisture * 255.0).round() as u8;
-                *moisture_pixel = Rgb([
-                    moisture_val,
-                    moisture_val,
-                    moisture_val,
-                ]);
+                *moisture_pixel = Rgb([moisture_val, moisture_val, moisture_val]);
             }
         }
         println!("done - {:?}", t_render.elapsed());
@@ -194,7 +185,9 @@ impl Terrain {
             terrain_image.save(Path::new("/tmp/terrain.png")).unwrap();
         });
         let elevation_handle = thread::spawn(move || {
-            elevation_image.save(Path::new("/tmp/elevation.png")).unwrap();
+            elevation_image
+                .save(Path::new("/tmp/elevation.png"))
+                .unwrap();
         });
         let moisture_handle = thread::spawn(move || {
             moisture_image.save(Path::new("/tmp/moisture.png")).unwrap();
@@ -215,6 +208,4 @@ impl Terrain {
         let idx = (self.size * y) + x;
         self.elevation_map[idx as usize]
     }
-
-
 }

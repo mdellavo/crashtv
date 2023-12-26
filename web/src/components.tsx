@@ -1,6 +1,21 @@
 import { DOMcreateElement } from './render';
 import { css } from '@emotion/css'
 
+export interface LoadingMessageProps {
+  id?: string;
+  message?: string;
+}
+
+export const LoadingMessage = (props: LoadingMessageProps) => {
+  return (
+    <h1 id={props.id} className={css`
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    `}>{props.message || "Loading..."}</h1>
+  );
+};
+
 export interface WelcomeScreenProps {
   message?: string;
   onJoin(username: string): void;

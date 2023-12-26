@@ -57,7 +57,6 @@ export class GameObject {
   }
 
   static fromResponse(data: any) {
-    console.log("data", data);
     const alive = data[0][0];
     const age = data[0][1]
     const objId = data[0][2];

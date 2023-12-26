@@ -7,4 +7,3 @@ pub struct StateUpdate {
     pub incremental: bool,
     pub objects: Vec<FrozenGameObject>,
 }
-

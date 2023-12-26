@@ -1,15 +1,15 @@
 extern crate fps_counter;
 
-use std::ops::{AddAssign};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::ops::AddAssign;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use nalgebra::Vector3;
 
 use rand::Rng;
 
-use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
@@ -20,12 +20,11 @@ use fps_counter::FPSCounter;
 
 use bevy_ecs::prelude::*;
 
+use crate::actor::{actor_main, Actor, ActorType};
 use crate::net::StateUpdate;
-use crate::actor::{Actor, ActorType, actor_main};
 use crate::terrain::{Terrain, TerrainType};
 
-use crate::data_structs::{BinLattice};
-
+use crate::data_structs::BinLattice;
 
 #[derive(Clone, Debug, Serialize)]
 pub enum ObjectType {
@@ -52,7 +51,6 @@ pub struct Player {
 
 #[derive(Debug)]
 pub enum GameMessage {
-
     // Client Messages
     Hello(Client, UnboundedSender<GameResponse>, String),
     Goodbye(Client),
@@ -65,7 +63,15 @@ pub enum GameMessage {
     // Actor Messages
     Die(u32),
     Respawn(u32),
-    Scan(u32, oneshot::Sender<(Actor, FrozenGameObject, Vec<FrozenGameObject>, Vec<FrozenGameObject>)>),
+    Scan(
+        u32,
+        oneshot::Sender<(
+            Actor,
+            FrozenGameObject,
+            Vec<FrozenGameObject>,
+            Vec<FrozenGameObject>,
+        )>,
+    ),
     ActorMove(u32, f32, f32, f32),
 }
 
@@ -90,13 +96,19 @@ impl Player {
 }
 
 #[derive(Component, Debug, Copy, Clone)]
-struct Position { value: Vector3<f32> }
+struct Position {
+    value: Vector3<f32>,
+}
 
 #[derive(Component, Debug, Copy, Clone)]
-struct Velocity { value: Vector3<f32>  }
+struct Velocity {
+    value: Vector3<f32>,
+}
 
 #[derive(Component, Debug, Copy, Clone)]
-struct Acceleration { value: Vector3<f32> }
+struct Acceleration {
+    value: Vector3<f32>,
+}
 
 #[derive(Component)]
 struct Alive;
@@ -110,7 +122,6 @@ pub struct GameObject {
     pub object_type: ObjectType,
     pub health: u8,
 }
-
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FrozenGameObject {
@@ -167,12 +178,14 @@ impl GameArea {
             fps_counter: FPSCounter::default(),
         };
 
-        area.schedule.add_systems(|mut query: Query<(Entity, &mut Position, &mut Velocity, &Acceleration)>| {
-            for (entity, mut position, mut velocity, acceleration) in &mut query {
-                velocity.value.add_assign(acceleration.value);
-                position.value.add_assign(velocity.value);
-            }
-        });
+        area.schedule.add_systems(
+            |mut query: Query<(Entity, &mut Position, &mut Velocity, &Acceleration)>| {
+                for (entity, mut position, mut velocity, acceleration) in &mut query {
+                    velocity.value.add_assign(acceleration.value);
+                    position.value.add_assign(velocity.value);
+                }
+            },
+        );
 
         area
     }
@@ -180,7 +193,11 @@ impl GameArea {
     fn freeze_game_object(&self, object: &GameObject) -> FrozenGameObject {
         let pos = self.world.entity(object.entity).get::<Position>().unwrap();
         let vel = self.world.entity(object.entity).get::<Velocity>().unwrap();
-        let accel = self.world.entity(object.entity).get::<Acceleration>().unwrap();
+        let accel = self
+            .world
+            .entity(object.entity)
+            .get::<Acceleration>()
+            .unwrap();
 
         FrozenGameObject {
             object: object.clone(),
@@ -190,16 +207,19 @@ impl GameArea {
         }
     }
 
-    fn freeze_game_object_mut(&mut self, object: &GameObject) -> FrozenGameObject {
-        self.freeze_game_object(object)
-    }
-
     pub fn has_username(&self, username: &String) -> bool {
         let usernames: Vec<String> = self.players.values().map(|x| x.username.clone()).collect();
         usernames.iter().any(|x| x.eq(username))
     }
 
-    pub fn add_object(&mut self, object_type: ObjectType, entity: Entity, x: f32, y: f32, z: f32) -> &mut GameObject {
+    pub fn add_object(
+        &mut self,
+        object_type: ObjectType,
+        entity: Entity,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> &mut GameObject {
         let obj = GameObject::new(object_type.clone(), entity);
         let key = obj.object_id;
         self.entities.insert(entity, obj.object_id);
@@ -208,40 +228,68 @@ impl GameArea {
     }
 
     pub fn add_item(&mut self, x: f32, y: f32, z: f32) -> &mut GameObject {
-        let entity = self.world.spawn((
-            Position { value: Vector3::new(x, y, z) },
-        )).id();
+        let entity = self
+            .world
+            .spawn((
+                Position {
+                    value: Vector3::new(x, y, z),
+                },
+                Velocity {
+                    value: Vector3::new(0.0, 0.0, 0.0),
+                },
+                Acceleration {
+                    value: Vector3::new(0.0, 0.0, 0.0),
+                },
+            ))
+            .id();
 
         let obj = self.add_object(ObjectType::Item, entity, x, y, z);
         obj
     }
 
     pub fn add_actor(&mut self, x: f32, y: f32, z: f32) -> &mut GameObject {
-        let entity = self.world.spawn((
-            Alive,
-            Position { value: Vector3::new(x, y, z) },
-            Velocity { value: Vector3::new(0.0, 0.0, 0.0) },
-        )).id();
+        let entity = self
+            .world
+            .spawn((
+                Alive,
+                Position {
+                    value: Vector3::new(x, y, z),
+                },
+                Velocity {
+                    value: Vector3::new(1.0, 0.0, 1.0),
+                },
+                Acceleration {
+                    value: Vector3::new(0.0, 0.0, 0.0),
+                },
+            ))
+            .id();
 
         let obj = self.add_object(ObjectType::Actor, entity, x, y, z);
         obj
     }
 
-
     pub fn add_player(&mut self, x: f32, y: f32, z: f32) -> &mut GameObject {
-        let entity = self.world.spawn((
-            Alive,
-            Position { value: Vector3::new(x, y, z) },
-            Velocity { value: Vector3::new(0.0, 0.0, 0.0) },
-            Acceleration { value: Vector3::new(0.0, 0.0, 0.0) },
-        )).id();
+        let entity = self
+            .world
+            .spawn((
+                Alive,
+                Position {
+                    value: Vector3::new(x, y, z),
+                },
+                Velocity {
+                    value: Vector3::new(0.0, 0.0, 0.0),
+                },
+                Acceleration {
+                    value: Vector3::new(0.0, 0.0, 0.0),
+                },
+            ))
+            .id();
 
         let obj = self.add_object(ObjectType::Player, entity, x, y, z);
         obj
     }
 
     pub fn spawn_actor(&mut self, actor_type: ActorType) -> u32 {
-
         let tx = self.game_tx.clone();
         let mut rng = rand::thread_rng();
 
@@ -249,7 +297,10 @@ impl GameArea {
         let x = rng.gen::<f32>() * size;
         let z = rng.gen::<f32>() * size;
 
-        let elevation = self.terrain.get_elevation(x.clamp(0.0, size-1.0) as u32, z.clamp(0.0, size-1.0) as u32);
+        let elevation = self.terrain.get_elevation(
+            x.clamp(0.0, size - 1.0) as u32,
+            z.clamp(0.0, size - 1.0) as u32,
+        );
         let y = elevation;
 
         let obj = self.add_actor(x, y, z);
@@ -288,18 +339,23 @@ impl GameArea {
         }
     }
 
-    async fn handle_hello(&mut self, client: Client, client_conn: UnboundedSender<GameResponse>, username: String) {
+    async fn handle_hello(
+        &mut self,
+        client: Client,
+        client_conn: UnboundedSender<GameResponse>,
+        username: String,
+    ) {
         if self.players.contains_key(&client.client_id) {
             let result = client_conn.send(GameResponse::Error(1, "Incorrect hello".to_string()));
             if let Err(e) = result {
-
                 log::error!("game response write error {:?}: {}", client, e);
             }
             return;
         }
 
         if self.has_username(&username) {
-            let result = client_conn.send(GameResponse::Error(1, "Username already taken".to_string()));
+            let result =
+                client_conn.send(GameResponse::Error(1, "Username already taken".to_string()));
             if let Err(e) = result {
                 log::error!("game response write error {:?}: {}", client, e);
             }
@@ -337,7 +393,11 @@ impl GameArea {
         player.send(GameResponse::StateUpdate(StateUpdate {
             object_id: player_object_id,
             area_size: self.terrain.size,
-            objects: self.objects.values().map(|obj| { self.freeze_game_object(obj) }).collect(),
+            objects: self
+                .objects
+                .values()
+                .map(|obj| self.freeze_game_object(obj))
+                .collect(),
             incremental: false,
         }));
 
@@ -349,7 +409,7 @@ impl GameArea {
                     object_id: other.object_id,
                     area_size: self.terrain.size,
                     objects: vec![self.freeze_game_object(player_obj)],
-                    incremental: true
+                    incremental: true,
                 }));
             }
         }
@@ -365,7 +425,7 @@ impl GameArea {
                         object_id: other.object_id,
                         area_size: self.terrain.size,
                         objects: vec![self.freeze_game_object(&player_obj)],
-                        incremental: true
+                        incremental: true,
                     }));
                 }
             }
@@ -382,8 +442,11 @@ impl GameArea {
     async fn handle_move(&mut self, client: Client, x: f32, y: f32, z: f32) {
         if let Some(player) = self.players.get(&client.client_id) {
             if let Some(player_obj) = self.objects.get(&player.object_id) {
-
-                // FIXME handle player move
+                let mut entity = self.world.entity_mut(player_obj.entity);
+                let mut velocity = entity.get_mut::<Velocity>().unwrap();
+                velocity.value.x = 10. * x;
+                velocity.value.y = 10. * y;
+                velocity.value.z = 10. * z;
 
                 for other in self.players.values() {
                     other.send(GameResponse::StateUpdate(StateUpdate {
@@ -392,17 +455,24 @@ impl GameArea {
                         incremental: true,
                         objects: vec![self.freeze_game_object(player_obj)],
                     }));
-                };
+                }
             }
         }
     }
 
-    fn query(&self, actor_id: u32, actor: &GameObject, object_type: ObjectType, limit: usize) -> Vec<GameObject>{
-
+    fn query(
+        &self,
+        actor_id: u32,
+        actor: &GameObject,
+        object_type: ObjectType,
+        limit: usize,
+    ) -> Vec<GameObject> {
         let actor_pos = self.world.entity(actor.entity).get::<Position>().unwrap();
 
-        let object_ids = self.actor_index.get_nearby(actor_pos.value.x, actor_pos.value.z, 50.0);
-        let mut objects : Vec<GameObject> = object_ids
+        let object_ids = self
+            .actor_index
+            .get_nearby(actor_pos.value.x, actor_pos.value.z, 50.0);
+        let mut objects: Vec<GameObject> = object_ids
             .iter()
             .filter(|object_id| **object_id != actor.object_id)
             .flat_map(|object_id| self.objects.get(object_id))
@@ -410,24 +480,46 @@ impl GameArea {
             .collect();
 
         objects.sort_by(|a, b| {
-
             let a_pos = self.world.entity(a.entity).get::<Position>().unwrap();
             let b_pos = self.world.entity(b.entity).get::<Position>().unwrap();
 
             let dist_a = a_pos.value.metric_distance(&actor_pos.value);
             let dist_b = b_pos.value.metric_distance(&actor_pos.value);
-            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         objects.iter().take(limit).cloned().collect()
     }
 
-    async fn handle_scan(&mut self, actor_id: u32, response_conn: oneshot::Sender<(Actor, FrozenGameObject, Vec<FrozenGameObject>, Vec<FrozenGameObject>)>) {
+    async fn handle_scan(
+        &mut self,
+        actor_id: u32,
+        response_conn: oneshot::Sender<(
+            Actor,
+            FrozenGameObject,
+            Vec<FrozenGameObject>,
+            Vec<FrozenGameObject>,
+        )>,
+    ) {
         let actor = self.actors.get(&actor_id).unwrap();
         let actor_obj = self.objects.get(&actor.object_id).unwrap();
-        let actor_pos = self.world.entity(actor_obj.entity).get::<Position>().unwrap();
-        let actor_vel = self.world.entity(actor_obj.entity).get::<Velocity>().unwrap();
-        let actor_accel = self.world.entity(actor_obj.entity).get::<Acceleration>().unwrap();
+        let actor_pos = self
+            .world
+            .entity(actor_obj.entity)
+            .get::<Position>()
+            .unwrap();
+        let actor_vel = self
+            .world
+            .entity(actor_obj.entity)
+            .get::<Velocity>()
+            .unwrap();
+        let actor_accel = self
+            .world
+            .entity(actor_obj.entity)
+            .get::<Acceleration>()
+            .unwrap();
 
         let frozen_actor = FrozenGameObject {
             object: actor_obj.clone(),
@@ -436,20 +528,21 @@ impl GameArea {
             acceleration: actor_accel.value,
         };
 
-        let players: Vec<FrozenGameObject> = self.players
-                                           .values()
-                                           .flat_map(|player| self.objects.get(&player.object_id))
-                                           .filter(|player| {
-                                               let player_pos = self.world.entity(player.entity).get::<Position>().unwrap();
-                                               player_pos.value.metric_distance(&actor_pos.value) < 100.0
-                                           })
-                                           .map(|player| {
-                                               self.freeze_game_object(player)
-                                           })
-                                           .collect();
-        let actors: Vec<FrozenGameObject> = self.query(actor_id, &actor_obj, ObjectType::Actor, 20).iter().map(|actor| {
-            self.freeze_game_object(actor)
-        }).collect();
+        let players: Vec<FrozenGameObject> = self
+            .players
+            .values()
+            .flat_map(|player| self.objects.get(&player.object_id))
+            .filter(|player| {
+                let player_pos = self.world.entity(player.entity).get::<Position>().unwrap();
+                player_pos.value.metric_distance(&actor_pos.value) < 100.0
+            })
+            .map(|player| self.freeze_game_object(player))
+            .collect();
+        let actors: Vec<FrozenGameObject> = self
+            .query(actor_id, &actor_obj, ObjectType::Actor, 20)
+            .iter()
+            .map(|actor| self.freeze_game_object(actor))
+            .collect();
 
         if let Err(e) = response_conn.send((actor.clone(), frozen_actor, players, actors)) {
             log::error!("error sending response: {:?}", e);
@@ -459,7 +552,6 @@ impl GameArea {
     async fn handle_actor_move(&mut self, actor_id: u32, x: f32, y: f32, z: f32) {
         if let Some(actor) = self.actors.get(&actor_id) {
             if let Some(actor_obj) = self.objects.get(&actor.object_id) {
-
                 // FIXME send impulse to actor
 
                 // log::debug!("accel: {:?} / vel: {:?} / pos: {:?}", actor_obj.acceleration, actor_obj.velocity, actor_obj.position);
@@ -471,7 +563,7 @@ impl GameArea {
                         incremental: true,
                         objects: vec![self.freeze_game_object(actor_obj)],
                     }));
-                };
+                }
             }
         }
     }
@@ -541,40 +633,38 @@ impl GameArea {
         match msg {
             GameMessage::Hello(client, client_conn, username) => {
                 self.handle_hello(client, client_conn, username).await;
-            },
+            }
             GameMessage::Goodbye(client) => {
                 self.handle_goodbye(client).await;
-            },
+            }
             GameMessage::Ping(client, timestamp) => {
                 self.handle_ping(client, timestamp).await;
-            },
+            }
             GameMessage::Move(client, x, y, z) => {
                 self.handle_move(client, x, y, z).await;
-            },
+            }
             GameMessage::Scan(actor_id, response_conn) => {
                 self.handle_scan(actor_id, response_conn).await;
-            },
+            }
             GameMessage::ActorMove(actor_id, x, y, z) => {
                 self.handle_actor_move(actor_id, x, y, z).await;
-            },
+            }
             GameMessage::Respawn(actor_id) => {
                 self.handle_respawn(actor_id).await;
-            },
+            }
             GameMessage::Die(actor_id) => {
                 self.handle_die(actor_id).await;
-            },
+            }
             GameMessage::Tick(tick_time) => {
                 self.handle_tick(tick_time).await;
-            },
+            }
         }
     }
 
     pub fn tick(&mut self, elapsed: Duration) {
-
         self.schedule.run(&mut self.world);
 
         self.objects.values_mut().for_each(|obj| {
-
             // if is_actor {
             //     self.actor_index.remove(obj.position.x, obj.position.z, obj.object_id);
             // }
@@ -610,12 +700,10 @@ impl GameArea {
             //     self.actor_index.put(obj.position.x, obj.position.z, obj.object_id);
             // }
 
-
             // log::debug!("pos: {:?} | vel: {:?}", obj.position, obj.velocity);
 
             obj.age += 1;
         });
-
     }
 
     pub async fn process(&mut self, mut game_rx: UnboundedReceiver<GameMessage>) {

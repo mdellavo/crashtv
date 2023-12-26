@@ -1,9 +1,15 @@
 import './style.css';
 
 import { DOMcreateElement } from './render';
-import { WelcomeScreen } from './components';
+import { WelcomeScreen, LoadingMessage } from './components';
 import { gameMain } from './game';
 import { loadingMain } from './models';
+
+
+const setBody = (el: any) => {
+  document.body.innerHTML = "";
+  document.body.appendChild(el);
+};
 
 const main = () => {
 
@@ -18,8 +24,8 @@ const main = () => {
       const el = (
         <WelcomeScreen onJoin={onJoin} message={message} />
       );
-      document.body.innerHTML = "";
-      document.body.appendChild(el);
+
+      setBody(el);
     };
 
     const gameProps = {
@@ -37,11 +43,22 @@ const main = () => {
     const onJoin = (username: string) => {
       console.log("Join", username);
       document.body.innerHTML = "";
+
+      const loading = (
+        <LoadingMessage message="Joining..." id="loading"/>
+      );
+      setBody(loading);
+
       gameMain(username, gameProps, assets);
     };
 
     goToWelcome();
   };
+
+  const loading = (
+    <LoadingMessage/>
+  );
+  setBody(loading);
 
   loadingMain({
     onLoaded: onLoaded,
