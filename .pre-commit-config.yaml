@@ -1,0 +1,20 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v3.2.0
+  hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+- repo: local
+  hooks:
+      - id: prettier
+        name: prettier
+        files: ^web/
+        entry: bash -c 'cd web && npx prettier . --write'
+        language: system
+      - id: cargo-fmt
+        name: cargo-fmt
+        files: ^backend/
+        entry: bash -c 'cd backend && cargo fmt'
+        language: system
