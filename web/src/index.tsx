@@ -50,7 +50,14 @@ const main = () => {
   const loading = <LoadingMessage />;
   setBody(loading);
 
+  const onModelLoaded = (name: string) => {
+    const msg = `loaded ${name}`;
+    const loading = <LoadingMessage status={msg} />;
+    setBody(loading);
+  };
+
   loadingMain({
+    onModelLoaded: onModelLoaded,
     onLoaded: onLoaded,
   });
 };

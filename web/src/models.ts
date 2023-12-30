@@ -84,12 +84,15 @@ const allModels = {
   Yeti: Yeti,
 } as { [k: string]: string };
 
-const loadModel = (name: string, url: string) => {
+type ModelLoaded = (name: string) => void;
+
+const loadModel = (name: string, url: string, loaded: ModelLoaded) => {
   const loader = new GLTFLoader();
   return new Promise((resolve, reject) => {
     loader.load(
       url,
       (gtlf) => {
+        loaded(name);
         resolve([name, gtlf]);
       },
       (event: ProgressEvent) => {
@@ -102,10 +105,11 @@ const loadModel = (name: string, url: string) => {
   });
 };
 
-export const loadAllModels = async () => {
+export const loadAllModels = async (props: LoadingProps) => {
   var promises = Object.entries(allModels).map((pair) => {
     const [name, url] = pair;
-    return loadModel(name, url);
+    const rv = loadModel(name, url, props.onModelLoaded);
+    return rv;
   });
   var models = await Promise.all(promises);
   var rv = new Map();
@@ -113,13 +117,15 @@ export const loadAllModels = async () => {
     var [name, model] = models[i] as [string, any];
     rv.set(name, model);
   }
+  props.onLoaded(rv);
   return rv;
 };
 
 export interface LoadingProps {
+  onModelLoaded(name: string): void;
   onLoaded(assets: Map<string, any>): void;
 }
 
 export const loadingMain = (props: LoadingProps) => {
-  loadAllModels().then(props.onLoaded);
+  loadAllModels(props);
 };

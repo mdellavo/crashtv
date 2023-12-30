@@ -4,20 +4,23 @@ import { css } from "@emotion/css";
 export interface LoadingMessageProps {
   id?: string;
   message?: string;
+  status?: string;
 }
 
 export const LoadingMessage = (props: LoadingMessageProps) => {
   return (
-    <h1
+    <div
       id={props.id}
       className={css`
         display: flex;
         justify-content: center;
         align-items: center;
+        flex-direction: column;
       `}
     >
-      {props.message || "Loading..."}
-    </h1>
+      <h1>{props.message || "Loading..."}</h1>
+      <p>{props.status || ""}</p>
+    </div>
   );
 };
 
@@ -40,14 +43,12 @@ export const WelcomeScreen = (props: WelcomeScreenProps) => {
         display: flex;
         justify-content: center;
         align-items: center;
+        flex-direction: column;
+        padding-top: 200px;
+        height: 200px;
       `}
     >
-      <div
-        className={css`
-          padding-top: 200px;
-          height: 200px;
-        `}
-      >
+      <div>
         <h1>CrashTV</h1>
         <br />
         <form method="post" onsubmit={onSubmit}>

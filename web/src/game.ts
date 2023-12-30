@@ -260,8 +260,6 @@ export const gameMain = (
     SkyBack,
   ]);
 
-  var elevationMapMesh: Mesh;
-  var terrainMapMesh: Mesh;
   var terrainTexture: Texture;
   var elevationTexture: Texture;
 
@@ -580,17 +578,6 @@ export const gameMain = (
       elevationTexture = renderElevationTextureFromImageMap(map);
       elevationTexture.needsUpdate = true;
       elevationTexture.generateMipmaps = true;
-
-      const elevationMapGeom = new PlaneGeometry(10, 10);
-      const elevationMapMaterial = new MeshBasicMaterial({
-        map: elevationTexture,
-      });
-      elevationMapMesh = new Mesh(elevationMapGeom, elevationMapMaterial);
-      elevationMapMesh.rotateX(Math.PI / 4);
-      elevationMapMesh.rotateY(Math.PI / 4);
-      elevationMapMesh.rotateZ(Math.PI / 4);
-      elevationMapMesh.position.z = -10;
-      camera.add(elevationMapMesh);
     },
     TerrainMap: (map: TerrainMap) => {
       terrainTexture = renderTerrainTextureFromImageMap(map);
@@ -598,17 +585,6 @@ export const gameMain = (
       terrainTexture.generateMipmaps = true;
       terrainTexture.wrapS = ClampToEdgeWrapping;
       terrainTexture.wrapT = ClampToEdgeWrapping;
-
-      const terrainMapGeom = new PlaneGeometry(100, 100);
-      const terrainMapMaterial = new MeshBasicMaterial({
-        map: terrainTexture,
-      });
-      terrainMapMesh = new Mesh(terrainMapGeom, terrainMapMaterial);
-      terrainMapMesh.rotateX(Math.PI / 4);
-      terrainMapMesh.rotateY(Math.PI / 4);
-      terrainMapMesh.rotateZ(Math.PI / 4);
-      terrainMapMesh.position.z = -10;
-      camera.add(terrainMapMesh);
     },
     StateUpdate: (state: StateUpdate) => {
       if (!state.incremental) {
